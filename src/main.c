@@ -43,32 +43,23 @@ internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
 }
 
 
-#define FONT_SPACING 0
 
 typedef struct {
     Font font;
     s32 size;
 } Font_And_Size;
 
-// Perfect_Font LoadPerfectFont(const char *path, s32 font_size) {
-//     Perfect_Font result = {
-//         .font = LoadFontEx(path, font_size, NULL, 0),
-//         .font_size = font_size,
-//     };
-//     return result;
-// }
 
-// void UnloadPerfectFont(Perfect_Font font) { UnloadFont(font.font); }
+global_variable const char *    dynamic_font_path = NULL;
+global_variable Font_And_Size   dynamic_fonts_storage[512];
+global_variable u32             dynamic_fonts_storage_count = 0;
 
-const char *    dynamic_font_path = NULL;
-Font_And_Size   dynamic_fonts_storage[512]; // TODO this would be better as a hashmap
-u32             dynamic_fonts_storage_count = 0;
 
-void InitDynamicFonts(const char *path) {
+internal void InitDynamicFonts(const char *path) {
     dynamic_font_path = path;
     dynamic_fonts_storage_count = 0;
 }
-void UnloadDynamicFonts(void) {
+internal void UnloadDynamicFonts(void) {
     dynamic_font_path = NULL;
 
     for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
@@ -78,8 +69,10 @@ void UnloadDynamicFonts(void) {
 }
 
 internal Font_And_Size GetFontWithSize(s32 font_size) {
+    ASSERT(dynamic_font_path && "Call InitDynamicFonts() before this function");
+
     s32 index = -1;
-    // TODO linear seach is bad? or it it good? I forget...
+    // TODO linear search is bad? or it it good? I forget...
     for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
         if (dynamic_fonts_storage[i].size == font_size) {
             index = i;
@@ -99,15 +92,7 @@ internal Font_And_Size GetFontWithSize(s32 font_size) {
     return dynamic_fonts_storage[index];
 }
 
-void DrawDynamicText(const char *text, Vector2 position, s32 font_size, Color color) {
-    Font_And_Size font_and_size = GetFontWithSize(font_size);
-    DrawTextEx(font_and_size.font, text, position, font_and_size.size, FONT_SPACING, color);
-}
 
-Vector2 MeasureDynamicText(const char *text, s32 font_size) {
-    Font_And_Size font_and_size = GetFontWithSize(font_size);
-    return MeasureTextEx(font_and_size.font, text, font_and_size.size, FONT_SPACING);
-}
 
 
 
@@ -240,7 +225,7 @@ internal Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
 
 #define MAX_TEMP_FILE_SIZE      (32 * KILOBYTE)
 // overwrites temeratry buffer every call.
-String temp_Read_Entire_File(const char *filename) {
+internal String temp_Read_Entire_File(const char *filename) {
     local_persist u8 temp_file_storeage[MAX_TEMP_FILE_SIZE];
 
     FILE *file = fopen(filename, "rb");
@@ -432,12 +417,14 @@ int main(void) {
         window_height   = GetScreenHeight();
 
 
-        Vector2 mouse_pos                   = GetMousePosition();
-        bool    mouse_left_clicked          = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-        bool    mouse_left_down             = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-        bool    keyboard_shift_down         = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
-        bool    keyboard_control_down       = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-        bool    keyboard_delete_pressed     = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
+        Vector2 mouse_pos                           = GetMousePosition();
+        bool    mouse_left_clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        bool    mouse_left_down                     = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+        bool    keyboard_shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
+        bool    keyboard_control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        bool    keyboard_delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
+
+        bool    keyboard_shift_or_control_down      = keyboard_shift_down || keyboard_control_down;
 
         // determines wheather a number was pressed to put it into the grid.
         s8 number_pressed = NO_DIGIT_PLACED;
@@ -456,6 +443,8 @@ int main(void) {
             window_height/2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
         };
 
+        local_persist bool when_dragging_to_set_selected_to = true;
+        if (!mouse_left_down) when_dragging_to_set_selected_to = true;
 
         // update sudoku grid.
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
@@ -465,17 +454,23 @@ int main(void) {
 
                 bool mouse_is_over = CheckCollisionPointRec(mouse_pos, cell_bounds);
                 cell.ui->is_hovering_over = mouse_is_over;
+
                 if (mouse_left_clicked) {
-                    // if shift is down, dont unselect.
-                    cell.ui->is_selected = mouse_is_over || (cell.ui->is_selected && (keyboard_shift_down || keyboard_control_down));
+                    if (mouse_is_over) {
+                        if (keyboard_shift_or_control_down) {
+                            // start of deselection drag
+                            cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
+                        } else {
+                            // just this one will be selected
+                            cell.ui->is_selected = true;
+                        }
+                        when_dragging_to_set_selected_to = cell.ui->is_selected;
+                    } else {
+                        // only stay active if shift or cntl is down
+                        cell.ui->is_selected = cell.ui->is_selected && keyboard_shift_or_control_down;
+                    }
                 }
 
-                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
-                if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
-
-                if (mouse_left_down && CheckCollisionPointRec(mouse_pos, smaller_hitbox)) {
-                    cell.ui->is_selected = true;
-                }
 
 
                 if (cell.ui->is_selected) {
@@ -493,10 +488,32 @@ int main(void) {
                         }
                     }
 
-                    if (keyboard_delete_pressed)                *cell.digit = NO_DIGIT_PLACED;  // @Place_Digit
+                    if (keyboard_delete_pressed) {
+                        // TODO maybe if you have cntl press or something it dose something different?
+                        // but will always remove digit first
+                        if (*cell.digit != NO_DIGIT_PLACED) *cell.digit = NO_DIGIT_PLACED;  // @Place_Digit
+                        else if (cell.marking->certain)     cell.marking->  certain = 0;
+                        else if (cell.marking->uncertain)   cell.marking->uncertain = 0;
+                    }
                 }
             }
         }
+
+
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
+                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
+
+                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
+                if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
+
+                if (mouse_left_down && CheckCollisionPointRec(mouse_pos, smaller_hitbox)) {
+                    cell.ui->is_selected = when_dragging_to_set_selected_to;
+                }
+            }
+        }
+
 
 
         // draw sudoku grid
@@ -517,12 +534,12 @@ int main(void) {
 
                     Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE);
 
-                    Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, FONT_SPACING);
+                    Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
                     Vector2 text_position = {
                         cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
                         cell_bounds.y + SUDOKU_CELL_SIZE/2 - FONT_SIZE/2,
                     };
-                    DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, FONT_SPACING, FONT_COLOR);
+                    DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, 0, FONT_COLOR);
                 } else {
                     // draw uncertain and certain digits
                     Int_Array uncertain_numbers = { .allocator = scratch };
@@ -545,12 +562,12 @@ int main(void) {
 
                         Font_And_Size font_and_size = GetFontWithSize(font_size);
 
-                        Vector2 text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, FONT_SPACING);
+                        Vector2 text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, 0);
                         Vector2 text_pos = {
                             cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
                             cell_bounds.y + SUDOKU_CELL_SIZE/2 - font_and_size.size/2,
                         };
-                        DrawTextEx(font_and_size.font, buf, text_pos, font_and_size.size, FONT_SPACING, FONT_COLOR_MARKING);
+                        DrawTextEx(font_and_size.font, buf, text_pos, font_and_size.size, 0, FONT_COLOR_MARKING);
                     }
                 }
 
@@ -603,6 +620,8 @@ int main(void) {
 
     return result ? 0 : 1;
 }
+
+
 
 
 
