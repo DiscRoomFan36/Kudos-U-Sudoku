@@ -126,30 +126,69 @@ typedef struct {
 #define FONT_SIZE                           (SUDOKU_CELL_SIZE / 1)
 #define FONT_COLOR                          BLACK   // @Color
 
-#define FONT_SIZE_MARKING                   (SUDOKU_CELL_SIZE / 2.5)
+
+// TODO maybe the markings use a different font? maybe the bond version.
+
 #define FONT_COLOR_MARKING                  BLUE    // @Color
 
+#define FONT_SIZE_UNCERTAIN                 (FONT_SIZE / 3)
+
+#define FONT_SIZE_MARKING_CERTAIN_MAX_SIZE          (SUDOKU_CELL_SIZE / 2.5)
+#define FONT_SIZE_MARKING_CERTAIN_MIN_SIZE          (SUDOKU_CELL_SIZE / 6)
+
+#define MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING  4
 
 
 
-#define FONT_SIZE_MARKING_MAX_SIZE          (SUDOKU_CELL_SIZE / 2.5)
-#define FONT_SIZE_MARKING_MIN_SIZE          (SUDOKU_CELL_SIZE / 6)
 
-#define MARKING_ALLOWED_UPTO_SMALL_NUMBERS  4
+#define MARKING_UNCERTAIN_PADDING_UD                        5
+#define MARKING_UNCERTAIN_PADDING_LR                        12
+#define MARKING_UNCERTAIN_PADDING_9_AND_10_EXTRA            10
+
+const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
+    /*  1 */ {                   MARKING_UNCERTAIN_PADDING_LR,                                                                 MARKING_UNCERTAIN_PADDING_UD},                           // left      top
+    /*  2 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR,                                                                 MARKING_UNCERTAIN_PADDING_UD},                           // right     top
+    /*  3 */ {                   MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_UD - FONT_SIZE_UNCERTAIN},     // left      bottom
+    /*  4 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_UD - FONT_SIZE_UNCERTAIN},     // right     bottom
+    /*  5 */ {SUDOKU_CELL_SIZE/2,                                                                                              MARKING_UNCERTAIN_PADDING_UD},                           // middle    top
+    /*  6 */ {SUDOKU_CELL_SIZE/2,                                                                           SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_UD - FONT_SIZE_UNCERTAIN},     // middle    bottom
+    /*  7 */ {                   MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // left      middle
+    /*  8 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // right     middle
+    /*  9 */ {                   MARKING_UNCERTAIN_PADDING_LR + MARKING_UNCERTAIN_PADDING_9_AND_10_EXTRA,   SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // left-ish  middle
+    /* 10 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR - MARKING_UNCERTAIN_PADDING_9_AND_10_EXTRA,   SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // right-ish middle
+};
 
 
 
-f32 map(f32 x, f32 min, f32 max, f32 start, f32 end) {
+
+
+
+
+
+
+
+
+
+
+
+
+global_variable s32     window_width  = 16*80;
+global_variable s32     window_height =  9*80;
+
+global_variable bool    debug_draw_smaller_cell_hitbox = false;
+
+
+
+
+
+
+
+
+internal f32 map(f32 x, f32 min, f32 max, f32 start, f32 end) {
     ASSERT(min <= max);
     f32 a = (x - min) / (max - min); // map to [0..1]
     return a * (end - start) + start; // lerp
 }
-
-s32 window_width  = 16*80;
-s32 window_height =  9*80;
-
-bool debug_draw_smaller_cell_hitbox = false;
-
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -195,20 +234,12 @@ internal inline Sudoku_Grid_Cell get_cell(Sudoku_Grid *grid, u8 i, u8 j) {
     return result;
 }
 
-internal Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
-    (void) grid; // maybe this grid will tell us where we are
-
-
-    Vector2 sudoku_top_left_corner = {
-        window_width /2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
-        window_height/2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
-    };
-
-    Vector2 position = Vector2Add(sudoku_top_left_corner, (Vector2){i*SUDOKU_CELL_SIZE, j*SUDOKU_CELL_SIZE});
+internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
+    (void) grid; // maybe this grid will tell us where we are, eventually.
 
     Rectangle sudoku_cell = {
-        position.x,
-        position.y,
+        (i*SUDOKU_CELL_SIZE) + (window_width /2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+        (j*SUDOKU_CELL_SIZE) + (window_height/2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
         SUDOKU_CELL_SIZE,
         SUDOKU_CELL_SIZE,
     };
@@ -499,7 +530,7 @@ int main(void) {
             }
         }
 
-
+        // mouse dragging
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
@@ -513,6 +544,7 @@ int main(void) {
                 }
             }
         }
+
 
 
 
@@ -550,14 +582,33 @@ int main(void) {
                         if (cell.marking->  certain & (1 << k)) Array_Push(&  certain_numbers, k);
                     }
 
-                    // draw small certen numbers in the middle of the box
-                    if (certain_numbers.count != 0) {
+
+                    // draw uncertain numbers around the edge of the box
+                    if (uncertain_numbers.count) {
+                        Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE_UNCERTAIN); // what matters more? speed or binding energy?
+                        for (u32 k = 0; k < uncertain_numbers.count; k++) {
+                            const char *text = TextFormat("%d", uncertain_numbers.items[k]); // TODO do it smarter like above.
+
+                            Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
+                            Vector2 text_pos = { cell_bounds.x - text_size.x/2, cell_bounds.y };
+                            text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
+                            DrawTextEx(font_and_size.font, text, text_pos, font_and_size.size, 0, FONT_COLOR_MARKING);
+                        }
+                    }
+
+
+                    // draw small certain numbers in the middle of the box
+                    if (certain_numbers.count) {
                         char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
                         for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
 
-                        s32 font_size = FONT_SIZE_MARKING_MAX_SIZE;
-                        if (certain_numbers.count > MARKING_ALLOWED_UPTO_SMALL_NUMBERS) {
-                            font_size = map(certain_numbers.count, MARKING_ALLOWED_UPTO_SMALL_NUMBERS, SUDOKU_MAX_MARKINGS, FONT_SIZE_MARKING_MAX_SIZE, FONT_SIZE_MARKING_MIN_SIZE);
+                        s32 font_size = FONT_SIZE_MARKING_CERTAIN_MAX_SIZE;
+                        if (certain_numbers.count > MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING) {
+                            font_size = map(
+                                certain_numbers.count,
+                                MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING, SUDOKU_MAX_MARKINGS,
+                                FONT_SIZE_MARKING_CERTAIN_MAX_SIZE, FONT_SIZE_MARKING_CERTAIN_MIN_SIZE
+                            );
                         }
 
                         Font_And_Size font_and_size = GetFontWithSize(font_size);
@@ -575,13 +626,13 @@ int main(void) {
                 // hovering and stuff
                 // TODO selected should flow between cells, and not be drawn here
                 if (cell.ui->is_selected) {
-                    DrawRectangleFrameRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), 5, BLUE); // @Color
+                    // DrawRectangleFrameRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), 5, BLUE); // @Color
                 } else if (cell.ui->is_hovering_over) {
                     DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), ColorAlpha(BLACK, 0.2)); // cool trick
                 }
-
             }
         }
+
 
         // Boarder Lines
         DrawRectangleFrame(
@@ -605,6 +656,84 @@ int main(void) {
                 DrawRectangleFrameRec(sudoku_box, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_BOX_LINE_COLOR);
             }
         }
+
+
+        // Draw better selection
+        for (s32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (s32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
+                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
+
+                if (!cell.ui->is_selected) continue;
+
+                cell_bounds = ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING);
+
+                #define SELECT_LINE_THICKNESS       5
+
+                // orthoganal
+                Rectangle line_up           = { cell_bounds.x + SELECT_LINE_THICKNESS,                      cell_bounds.y,                                              cell_bounds.width - SELECT_LINE_THICKNESS*2,    SELECT_LINE_THICKNESS,                        };
+                Rectangle line_down         = { cell_bounds.x + SELECT_LINE_THICKNESS,                      cell_bounds.y + cell_bounds.height - SELECT_LINE_THICKNESS, cell_bounds.width - SELECT_LINE_THICKNESS*2,    SELECT_LINE_THICKNESS,                        };
+                Rectangle line_left         = { cell_bounds.x,                                              cell_bounds.y + SELECT_LINE_THICKNESS,                      SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
+                Rectangle line_right        = { cell_bounds.x + cell_bounds.width - SELECT_LINE_THICKNESS,  cell_bounds.y + SELECT_LINE_THICKNESS,                      SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
+                // diagonal
+                Rectangle line_up_left      = { cell_bounds.x,                                              cell_bounds.y,                                              SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+                Rectangle line_up_right     = { cell_bounds.x + cell_bounds.width - SELECT_LINE_THICKNESS,  cell_bounds.y,                                              SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+                Rectangle line_down_left    = { cell_bounds.x,                                              cell_bounds.y + cell_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+                Rectangle line_down_right   = { cell_bounds.x + cell_bounds.width - SELECT_LINE_THICKNESS,  cell_bounds.y + cell_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+
+
+                // i like this code better, but would have to make a macro or something to
+                // accses the fields, maybe later. if get_sounding_cells_is_seleted() is a common function
+                /*
+                bool is_selected_grid[3][3] = ZEROED;
+                for (s8 k = 0; k < 3; k++) {
+                    for (s8 l = 0; l < 3; l++) {
+                        s8 x = i + (l - 1);
+                        s8 y = j + (k - 1);
+                        if (Is_Between(x, 0, SUDOKU_SIZE-1) && Is_Between(y, 0, SUDOKU_SIZE-1)) {
+                            is_selected_grid[k][l] = get_cell(&grid, x, y).ui->is_selected;
+                        }
+                    }
+                }
+                */
+
+                // orthoganal
+                bool is_selected_up         =                         j == 0                ? false : get_cell(&grid, i  , j-1).ui->is_selected;
+                bool is_selected_down       =                         j == SUDOKU_SIZE - 1  ? false : get_cell(&grid, i  , j+1).ui->is_selected;
+                bool is_selected_left       = i == 0                                        ? false : get_cell(&grid, i-1, j  ).ui->is_selected;
+                bool is_selected_right      = i == SUDOKU_SIZE - 1                          ? false : get_cell(&grid, i+1, j  ).ui->is_selected;
+                // diagonal
+                bool is_selected_up_left    = i == 0               || j == 0                ? false : get_cell(&grid, i-1, j-1).ui->is_selected;
+                bool is_selected_up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : get_cell(&grid, i+1, j-1).ui->is_selected;
+                bool is_selected_down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i-1, j+1).ui->is_selected;
+                bool is_selected_down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i+1, j+1).ui->is_selected;
+
+
+                bool draw_line_up           = !is_selected_up;
+                bool draw_line_down         = !is_selected_down;
+                bool draw_line_left         = !is_selected_left;
+                bool draw_line_right        = !is_selected_right;
+
+                bool draw_line_up_left      = draw_line_up   || draw_line_left  || (!is_selected_up_left    && is_selected_up   && is_selected_left );
+                bool draw_line_up_right     = draw_line_up   || draw_line_right || (!is_selected_up_right   && is_selected_up   && is_selected_right);
+                bool draw_line_down_left    = draw_line_down || draw_line_left  || (!is_selected_down_left  && is_selected_down && is_selected_left );
+                bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected_down_right && is_selected_down && is_selected_right);
+
+
+                #define SELECT_HIGHLIGHT_COLOR            BLUE
+
+                if (draw_line_up        )   DrawRectangleRec(line_up,         SELECT_HIGHLIGHT_COLOR); //YELLOW);
+                if (draw_line_down      )   DrawRectangleRec(line_down,       SELECT_HIGHLIGHT_COLOR); //RED);
+                if (draw_line_left      )   DrawRectangleRec(line_left,       SELECT_HIGHLIGHT_COLOR); //PURPLE);
+                if (draw_line_right     )   DrawRectangleRec(line_right,      SELECT_HIGHLIGHT_COLOR); //GREEN);
+
+                if (draw_line_up_left   )   DrawRectangleRec(line_up_left,    SELECT_HIGHLIGHT_COLOR); //MAROON);
+                if (draw_line_up_right  )   DrawRectangleRec(line_up_right,   SELECT_HIGHLIGHT_COLOR); //ORANGE);
+                if (draw_line_down_left )   DrawRectangleRec(line_down_left,  SELECT_HIGHLIGHT_COLOR); //GOLD);
+                if (draw_line_down_right)   DrawRectangleRec(line_down_right, SELECT_HIGHLIGHT_COLOR); //PINK);
+            }
+        }
+
 
         EndDrawing();
     }
