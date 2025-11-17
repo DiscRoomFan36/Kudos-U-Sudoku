@@ -256,6 +256,15 @@ internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
 
 
 
+typedef enum {
+    SUL_DIGIT,
+    SUL_CERTAIN,
+    SUL_UNCERTAIN,
+    SUL_COLOR,
+} Sudoku_UI_Layer;
+
+
+
 
 ///////////////////////////////////////////////////////////////////////////
 //                          Save / Load Sudoku
@@ -464,6 +473,13 @@ int main(void) {
 
         bool    keyboard_shift_or_control_down      = keyboard_shift_down || keyboard_control_down;
 
+
+        Sudoku_UI_Layer layer;
+        if      (keyboard_shift_down && keyboard_control_down) layer = SUL_COLOR;
+        else if (keyboard_shift_down)                          layer = SUL_UNCERTAIN;
+        else if (keyboard_control_down)                        layer = SUL_CERTAIN;
+        else                                                   layer = SUL_DIGIT;
+
         // determines wheather a number was pressed to put it into the grid.
         s8 number_pressed = NO_DIGIT_PLACED;
         u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
@@ -471,6 +487,8 @@ int main(void) {
             if (IsKeyPressed(number_keys[i]))   number_pressed = i;
         }
 
+        // make sure that all boxes get the same result after pressing a key (all add or all remove)
+        bool remove_number_this_press = true;
 
 
         toggle_when_pressed(&debug_draw_smaller_cell_hitbox, KEY_F1);
@@ -484,12 +502,16 @@ int main(void) {
         local_persist bool when_dragging_to_set_selected_to = true;
         if (!mouse_left_down) when_dragging_to_set_selected_to = true;
 
-        // update sudoku grid.
+
+        // update sudoku grid
+        // phase 1
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
                 Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
 
+
+                // selected stuff
                 bool mouse_is_over = CheckCollisionPointRec(mouse_pos, cell_bounds);
                 cell.ui->is_hovering_over = mouse_is_over;
 
@@ -510,23 +532,26 @@ int main(void) {
                 }
 
 
-
+                // placing digits stuff
                 if (cell.ui->is_selected) {
                     if (number_pressed != NO_DIGIT_PLACED) {
-                        if (keyboard_shift_down && keyboard_control_down) {
-                            // this colors the cell, TODO
-                        } else if (keyboard_shift_down) {
-                            // TODO dont place if there is a digit there
-                            // TODO make them all the same thing after this turn
-                            cell.marking->uncertain ^= 1 << (number_pressed); // zero is valid to.
-                        } else if (keyboard_control_down) {
-                            cell.marking->  certain ^= 1 << (number_pressed); // zero is valid to.
-                        } else {
-                            *cell.digit = number_pressed;   // @Place_Digit
+                        bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                        switch (layer) {
+                            case SUL_DIGIT: {
+                                remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
+                            } break;
+                            case SUL_CERTAIN: {
+                                if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->  certain & (1 << (number_pressed)));
+                            } break;
+                            case SUL_UNCERTAIN: {
+                                if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->uncertain & (1 << (number_pressed)));
+                            } break;
+                            case SUL_COLOR: { /* TODO Color the cell */ } break;
                         }
                     }
 
                     if (keyboard_delete_pressed) {
+                        // TODO this should always deleate the same thing, aka the same layer.
                         // TODO maybe if you have cntl press or something it dose something different?
                         // but will always remove digit first
                         if (*cell.digit != NO_DIGIT_PLACED) *cell.digit = NO_DIGIT_PLACED;  // @Place_Digit
@@ -537,12 +562,41 @@ int main(void) {
             }
         }
 
-        // mouse dragging
+        // phase 2
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
                 Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
 
+
+                // placeing digits
+                // do this before the dragging stuff, it probably will never come up,
+                // but its more correct this way.
+                if (cell.ui->is_selected && number_pressed != NO_DIGIT_PLACED) {
+                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                    switch (layer) {
+                        case SUL_DIGIT: {
+                            if (remove_number_this_press)   *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
+                            else                            *cell.digit = number_pressed;  // @Place_Digit
+                        } break;
+                        case SUL_CERTAIN: {
+                            if (!has_digit) {
+                                if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
+                                else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
+                            }
+                        } break;
+                        case SUL_UNCERTAIN: {
+                            if (!has_digit) {
+                                if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
+                                else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
+                            }
+                        } break;
+                        case SUL_COLOR: { /* TODO Color the cell */ } break;
+                    }
+                }
+
+
+                // selected stuff, mouse dragging
                 Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
                 if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
 
@@ -551,6 +605,8 @@ int main(void) {
                 }
             }
         }
+
+
 
 
 
@@ -566,6 +622,8 @@ int main(void) {
 
 
                 if (*cell.digit != NO_DIGIT_PLACED) {
+                    // draw placed digit
+
                     // TODO do it smart
                     // char buf[2] = ZEROED;
                     // DrawTextCodepoint();
@@ -594,7 +652,8 @@ int main(void) {
                     if (uncertain_numbers.count) {
                         Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE_UNCERTAIN); // what matters more? speed or binding energy?
                         for (u32 k = 0; k < uncertain_numbers.count; k++) {
-                            const char *text = TextFormat("%d", uncertain_numbers.items[k]); // TODO do it smarter like above.
+                            // TODO do it smarter like above.
+                            const char *text = TextFormat("%d", uncertain_numbers.items[k]);
 
                             Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
                             Vector2 text_pos = { cell_bounds.x - text_size.x/2, cell_bounds.y };
