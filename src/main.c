@@ -178,17 +178,20 @@ const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
 
 
 
-
-global_variable s32     window_width  = 16*80;
+// sqaure for now, change when adding a control pannel.
+global_variable s32     window_width  =  9*80;
 global_variable s32     window_height =  9*80;
 
-global_variable bool    debug_draw_smaller_cell_hitbox = false;
+global_variable bool    debug_draw_smaller_cell_hitbox  = false;
+global_variable bool    debug_draw_cursor_position      = false;
 
 
 
 
 
 
+// TODO @Bested.h
+#define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
 
 
 internal f32 map(f32 x, f32 min, f32 max, f32 start, f32 end) {
@@ -242,6 +245,10 @@ internal inline Sudoku_Grid_Cell get_cell(Sudoku_Grid *grid, u8 i, u8 j) {
 }
 
 internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
+    // while this dosnt nessesarily cause problems, i want this to be
+    // used wherever get_cell is, and them having the same properties is nice
+    ASSERT(Is_Between(i, 0, SUDOKU_SIZE) && Is_Between(j, 0, SUDOKU_SIZE));
+
     (void) grid; // maybe this grid will tell us where we are, eventually.
 
     Rectangle sudoku_cell = {
@@ -464,7 +471,9 @@ int main(void) {
         window_width    = GetScreenWidth();
         window_height   = GetScreenHeight();
 
-
+        ////////////////////////////////
+        //        User Input
+        ////////////////////////////////
         Vector2 mouse_pos                           = GetMousePosition();
         bool    mouse_left_clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
         bool    mouse_left_down                     = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
@@ -473,6 +482,50 @@ int main(void) {
         bool    keyboard_delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
 
         bool    keyboard_shift_or_control_down      = keyboard_shift_down || keyboard_control_down;
+
+        bool    keyboard_direction_up_pressed       = IsKeyPressed(KEY_UP)      || IsKeyPressed(KEY_W);
+        bool    keyboard_direction_down_pressed     = IsKeyPressed(KEY_DOWN)    || IsKeyPressed(KEY_S);
+        bool    keyboard_direction_left_pressed     = IsKeyPressed(KEY_LEFT)    || IsKeyPressed(KEY_A);
+        bool    keyboard_direction_right_pressed    = IsKeyPressed(KEY_RIGHT)   || IsKeyPressed(KEY_D);
+
+        bool    keyboard_any_direction_pressed      = keyboard_direction_up_pressed || keyboard_direction_down_pressed || keyboard_direction_left_pressed || keyboard_direction_right_pressed;
+
+        toggle_when_pressed(&debug_draw_smaller_cell_hitbox,    KEY_F1);
+        toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
+
+
+        ////////////////////////////////
+        //        Selection
+        ////////////////////////////////
+        local_persist bool when_dragging_to_set_selected_to = true;
+        if (!mouse_left_down) when_dragging_to_set_selected_to = true;
+
+        local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
+        local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
+
+        {
+            s8 prev_x = cursor_x; s8 prev_y = cursor_y;
+            if (keyboard_direction_up_pressed   ) cursor_y -= 1;
+            if (keyboard_direction_down_pressed ) cursor_y += 1;
+            if (keyboard_direction_left_pressed ) cursor_x -= 1;
+            if (keyboard_direction_right_pressed) cursor_x += 1;
+
+            cursor_x = Proper_Mod(cursor_x, SUDOKU_SIZE);
+            cursor_y = Proper_Mod(cursor_y, SUDOKU_SIZE);
+
+            // cursor cannot go back over a selected cell.
+            //
+            // if shift is not pressed, and the cursor couldnt move to the cell,
+            // but will be able to, it dosn't move.
+            if (get_cell(&grid, cursor_x, cursor_y).ui->is_selected) {
+                cursor_x = prev_x; cursor_y = prev_y;
+            }
+
+            if (debug_draw_cursor_position) {
+                Rectangle rec = get_cell_bounds(&grid, cursor_x, cursor_y);
+                DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.5));
+            }
+        }
 
 
         ////////////////////////////////
@@ -502,13 +555,6 @@ int main(void) {
 
 
 
-        toggle_when_pressed(&debug_draw_smaller_cell_hitbox, KEY_F1);
-
-
-        local_persist bool when_dragging_to_set_selected_to = true;
-        if (!mouse_left_down) when_dragging_to_set_selected_to = true;
-
-
         // update sudoku grid
         // phase 1
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
@@ -523,6 +569,8 @@ int main(void) {
 
                 if (mouse_left_clicked) {
                     if (mouse_is_over) {
+                        cursor_x = i; cursor_y = j; // put cursor wherever mouse is.
+
                         if (keyboard_shift_or_control_down) {
                             // start of deselection drag
                             cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
@@ -536,6 +584,12 @@ int main(void) {
                         cell.ui->is_selected = cell.ui->is_selected && keyboard_shift_or_control_down;
                     }
                 }
+
+                if (keyboard_any_direction_pressed) {
+                    bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
+                    cell.ui->is_selected = cursor_is_here || (keyboard_shift_or_control_down && cell.ui->is_selected);
+                }
+
 
 
                 // placing digits stuff
