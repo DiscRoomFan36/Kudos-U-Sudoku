@@ -92,6 +92,8 @@ internal Font_And_Size GetFontWithSize(s32 font_size) {
     return dynamic_fonts_storage[index];
 }
 
+// TODO
+// internal DrawTextCentered(Font_And_Size font_and_size, const char *text, Vector2 position, Color color);
 
 
 
@@ -214,6 +216,9 @@ typedef struct {
 
     // bitfeilds descripbing witch markings are there.
     struct Marking {
+        // real digits are Black, players digits are marking color
+        bool digit_placed_in_solve_mode;
+
         u16 uncertain;
         u16   certain;
         // TODO color's
@@ -270,6 +275,7 @@ typedef enum {
     SUL_UNCERTAIN   = 2,
     SUL_COLOR       = 3,
 } Sudoku_UI_Layer;
+
 
 
 
@@ -462,6 +468,7 @@ int main(void) {
     }
 
 
+
     while (!WindowShouldClose()) {
         Arena_Clear(scratch);
 
@@ -494,6 +501,21 @@ int main(void) {
         toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
 
 
+        local_persist bool in_solve_mode = true;
+        {
+            toggle_when_pressed(&in_solve_mode, KEY_B);
+
+            Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE);
+
+            const char *text = in_solve_mode ? "SOLVE" : "BUILD";
+            Vector2 text_position = {
+                window_width/2 - MeasureTextEx(font_and_size.font, text, font_and_size.size, 0).x/2,
+                10,
+            };
+            DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, 0, FONT_COLOR);
+        }
+
+
         ////////////////////////////////
         //        Selection
         ////////////////////////////////
@@ -504,7 +526,9 @@ int main(void) {
         local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
 
         {
-            s8 prev_x = cursor_x; s8 prev_y = cursor_y;
+            s8 prev_x = cursor_x;
+            s8 prev_y = cursor_y;
+
             if (keyboard_direction_up_pressed   ) cursor_y -= 1;
             if (keyboard_direction_down_pressed ) cursor_y += 1;
             if (keyboard_direction_left_pressed ) cursor_x -= 1;
@@ -518,7 +542,8 @@ int main(void) {
             // if shift is not pressed, and the cursor couldnt move to the cell,
             // but will be able to, it dosn't move.
             if (get_cell(&grid, cursor_x, cursor_y).ui->is_selected) {
-                cursor_x = prev_x; cursor_y = prev_y;
+                cursor_x = prev_x;
+                cursor_y = prev_y;
             }
 
             if (debug_draw_cursor_position) {
@@ -594,11 +619,15 @@ int main(void) {
 
                 // placing digits stuff
                 if (cell.ui->is_selected) {
+
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
                     if (number_pressed != NO_DIGIT_PLACED) {
                         switch (layer_to_place) {
                             case SUL_DIGIT: {
-                                remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
+                                if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
                             } break;
                             case SUL_CERTAIN: {
                                 if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->  certain & (1 << (number_pressed)));
@@ -613,9 +642,9 @@ int main(void) {
                     if (keyboard_delete_pressed) {
                         // TODO maybe if you have cntl press or something it dose something different?
 
-                        if (has_digit)                  layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
-                        if (cell.marking->  certain)    layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
-                        if (cell.marking->uncertain)    layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
+                        if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
+                        if (cell.marking->  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
+                        if (cell.marking->uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
                         // Color is the lowest priority
                     }
                 }
@@ -632,35 +661,55 @@ int main(void) {
                 // placeing digits
                 // do this before the dragging stuff, it probably will never come up,
                 // but its more correct this way.
+                bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+
                 if (cell.ui->is_selected) {
                     if (number_pressed != NO_DIGIT_PLACED) {
-                        bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                         switch (layer_to_place) {
+
                             case SUL_DIGIT: {
-                                if (remove_number_this_press)   *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
-                                else                            *cell.digit = number_pressed;  // @Place_Digit
+                                if (slot_is_modifiable) {
+                                    if (remove_number_this_press) {
+                                        *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
+                                        cell.marking->digit_placed_in_solve_mode = false;
+                                    } else {
+                                        *cell.digit = number_pressed;  // @Place_Digit
+                                        cell.marking->digit_placed_in_solve_mode = in_solve_mode;
+                                    }
+                                }
                             } break;
+
                             case SUL_CERTAIN: {
                                 if (!has_digit) {
                                     if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
                                     else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
                                 }
                             } break;
+
                             case SUL_UNCERTAIN: {
                                 if (!has_digit) {
                                     if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
                                     else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
                                 }
                             } break;
+
                             case SUL_COLOR: { /* TODO Color the cell */ } break;
                         }
                     }
 
                     if (keyboard_delete_pressed) {
                         switch (layer_to_delete) {
-                            case SUL_DIGIT:     { *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */ } break;
+                            case SUL_DIGIT: {
+                                if (slot_is_modifiable) {
+                                    *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */
+                                    cell.marking->digit_placed_in_solve_mode = false;
+                                }
+                            } break;
                             case SUL_CERTAIN:   { cell.marking->  certain = 0; } break;
-                            case SUL_UNCERTAIN: { cell.marking->uncertain = 0; }break;
+                            case SUL_UNCERTAIN: { cell.marking->uncertain = 0; } break;
                             case SUL_COLOR: { /* TODO Remove Color */ } break;
                         }
                     }
@@ -707,7 +756,9 @@ int main(void) {
                         cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
                         cell_bounds.y + SUDOKU_CELL_SIZE/2 - FONT_SIZE/2,
                     };
-                    DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, 0, FONT_COLOR);
+                    Color text_color = cell.marking->digit_placed_in_solve_mode ? FONT_COLOR_MARKING : FONT_COLOR;
+
+                    DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, 0, text_color);
                 } else {
                     // draw uncertain and certain digits
                     Int_Array uncertain_numbers = { .allocator = scratch };
@@ -812,7 +863,7 @@ int main(void) {
 
 
                 } else if (cell.ui->is_hovering_over) {
-                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), ColorAlpha(BLACK, 0.2)); // cool trick
+                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), ColorAlpha(BLACK, 0.2)); // cool trick // @Color
                 }
             }
         }
