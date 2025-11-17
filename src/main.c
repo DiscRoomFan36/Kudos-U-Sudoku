@@ -72,7 +72,7 @@ internal Font_And_Size GetFontWithSize(s32 font_size) {
     ASSERT(dynamic_font_path && "Call InitDynamicFonts() before this function");
 
     s32 index = -1;
-    // TODO linear search is bad? or it it good? I forget...
+    // linear search is bad? or it it good? I forget...
     for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
         if (dynamic_fonts_storage[i].size == font_size) {
             index = i;
@@ -256,11 +256,12 @@ internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
 
 
 
+// NOTE lower = higher priority
 typedef enum {
-    SUL_DIGIT,
-    SUL_CERTAIN,
-    SUL_UNCERTAIN,
-    SUL_COLOR,
+    SUL_DIGIT       = 0,
+    SUL_CERTAIN     = 1,
+    SUL_UNCERTAIN   = 2,
+    SUL_COLOR       = 3,
 } Sudoku_UI_Layer;
 
 
@@ -403,8 +404,8 @@ internal bool save_sudoku(const char *filename, Sudoku_Grid *to_save) {
         for (u8 i = 0; i < Array_Len(sudoku_save_struct.digits_on_the_grid[j]); i++) {
             sudoku_save_struct.digits_on_the_grid[j][i] = to_save->digits[j][i];
 
-            sudoku_save_struct.digit_markings_on_the_grid[j][i].uncertain = to_save->markings[j][i].uncertain; // TODO actually save this at some point. when its being used
-            sudoku_save_struct.digit_markings_on_the_grid[j][i].  certain = to_save->markings[j][i].  certain; // TODO actually save this at some point. when its being used
+            sudoku_save_struct.digit_markings_on_the_grid[j][i].uncertain = to_save->markings[j][i].uncertain;
+            sudoku_save_struct.digit_markings_on_the_grid[j][i].  certain = to_save->markings[j][i].  certain;
         }
     }
 
@@ -474,11 +475,14 @@ int main(void) {
         bool    keyboard_shift_or_control_down      = keyboard_shift_down || keyboard_control_down;
 
 
-        Sudoku_UI_Layer layer;
-        if      (keyboard_shift_down && keyboard_control_down) layer = SUL_COLOR;
-        else if (keyboard_shift_down)                          layer = SUL_UNCERTAIN;
-        else if (keyboard_control_down)                        layer = SUL_CERTAIN;
-        else                                                   layer = SUL_DIGIT;
+        ////////////////////////////////
+        //     placeing digits
+        ////////////////////////////////
+        Sudoku_UI_Layer layer_to_place;
+        if      (keyboard_shift_down && keyboard_control_down) layer_to_place = SUL_COLOR;
+        else if (keyboard_shift_down)                          layer_to_place = SUL_UNCERTAIN;
+        else if (keyboard_control_down)                        layer_to_place = SUL_CERTAIN;
+        else                                                   layer_to_place = SUL_DIGIT;
 
         // determines wheather a number was pressed to put it into the grid.
         s8 number_pressed = NO_DIGIT_PLACED;
@@ -487,17 +491,19 @@ int main(void) {
             if (IsKeyPressed(number_keys[i]))   number_pressed = i;
         }
 
+
+        ////////////////////////////////
+        //     removing digits
+        ////////////////////////////////
         // make sure that all boxes get the same result after pressing a key (all add or all remove)
         bool remove_number_this_press = true;
+
+        Sudoku_UI_Layer layer_to_delete = SUL_COLOR; // lowest priority
+
 
 
         toggle_when_pressed(&debug_draw_smaller_cell_hitbox, KEY_F1);
 
-
-        Vector2 sudoku_top_left_corner = {
-            window_width /2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
-            window_height/2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
-        };
 
         local_persist bool when_dragging_to_set_selected_to = true;
         if (!mouse_left_down) when_dragging_to_set_selected_to = true;
@@ -534,9 +540,9 @@ int main(void) {
 
                 // placing digits stuff
                 if (cell.ui->is_selected) {
+                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                     if (number_pressed != NO_DIGIT_PLACED) {
-                        bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                        switch (layer) {
+                        switch (layer_to_place) {
                             case SUL_DIGIT: {
                                 remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
                             } break;
@@ -551,12 +557,12 @@ int main(void) {
                     }
 
                     if (keyboard_delete_pressed) {
-                        // TODO this should always deleate the same thing, aka the same layer.
                         // TODO maybe if you have cntl press or something it dose something different?
-                        // but will always remove digit first
-                        if (*cell.digit != NO_DIGIT_PLACED) *cell.digit = NO_DIGIT_PLACED;  // @Place_Digit
-                        else if (cell.marking->certain)     cell.marking->  certain = 0;
-                        else if (cell.marking->uncertain)   cell.marking->uncertain = 0;
+
+                        if (has_digit)                  layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
+                        if (cell.marking->  certain)    layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
+                        if (cell.marking->uncertain)    layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
+                        // Color is the lowest priority
                     }
                 }
             }
@@ -572,26 +578,37 @@ int main(void) {
                 // placeing digits
                 // do this before the dragging stuff, it probably will never come up,
                 // but its more correct this way.
-                if (cell.ui->is_selected && number_pressed != NO_DIGIT_PLACED) {
-                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    switch (layer) {
-                        case SUL_DIGIT: {
-                            if (remove_number_this_press)   *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
-                            else                            *cell.digit = number_pressed;  // @Place_Digit
-                        } break;
-                        case SUL_CERTAIN: {
-                            if (!has_digit) {
-                                if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
-                                else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
-                            }
-                        } break;
-                        case SUL_UNCERTAIN: {
-                            if (!has_digit) {
-                                if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
-                                else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
-                            }
-                        } break;
-                        case SUL_COLOR: { /* TODO Color the cell */ } break;
+                if (cell.ui->is_selected) {
+                    if (number_pressed != NO_DIGIT_PLACED) {
+                        bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                        switch (layer_to_place) {
+                            case SUL_DIGIT: {
+                                if (remove_number_this_press)   *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
+                                else                            *cell.digit = number_pressed;  // @Place_Digit
+                            } break;
+                            case SUL_CERTAIN: {
+                                if (!has_digit) {
+                                    if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
+                                    else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
+                                }
+                            } break;
+                            case SUL_UNCERTAIN: {
+                                if (!has_digit) {
+                                    if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
+                                    else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
+                                }
+                            } break;
+                            case SUL_COLOR: { /* TODO Color the cell */ } break;
+                        }
+                    }
+
+                    if (keyboard_delete_pressed) {
+                        switch (layer_to_delete) {
+                            case SUL_DIGIT:     { *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */ } break;
+                            case SUL_CERTAIN:   { cell.marking->  certain = 0; } break;
+                            case SUL_UNCERTAIN: { cell.marking->uncertain = 0; }break;
+                            case SUL_COLOR: { /* TODO Remove Color */ } break;
+                        }
                     }
                 }
 
@@ -747,11 +764,12 @@ int main(void) {
         }
 
 
+        Rectangle sudoku_top_left_corner_box = get_cell_bounds(&grid, 0, 0);
 
         // Boarder Lines
         DrawRectangleFrame(
-            sudoku_top_left_corner.x - SUDOKU_CELL_OUTER_LINE_PADDING,
-            sudoku_top_left_corner.y - SUDOKU_CELL_OUTER_LINE_PADDING,
+            sudoku_top_left_corner_box.x - SUDOKU_CELL_OUTER_LINE_PADDING,
+            sudoku_top_left_corner_box.y - SUDOKU_CELL_OUTER_LINE_PADDING,
             SUDOKU_CELL_SIZE * SUDOKU_SIZE + SUDOKU_CELL_OUTER_LINE_PADDING*2,
             SUDOKU_CELL_SIZE * SUDOKU_SIZE + SUDOKU_CELL_OUTER_LINE_PADDING*2,
             SUDOKU_CELL_OUTER_LINE_PADDING * 2,
@@ -761,11 +779,9 @@ int main(void) {
         // Lines that seperate the Boxes
         for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                Vector2 position = Vector2Add(sudoku_top_left_corner, (Vector2){i*3*SUDOKU_CELL_SIZE, j*3*SUDOKU_CELL_SIZE});
-                Rectangle sudoku_box = {
-                    position.x, position.y,
-                    SUDOKU_CELL_SIZE * 3, SUDOKU_CELL_SIZE * 3,
-                };
+                Rectangle sudoku_box = get_cell_bounds(&grid, i*3, j*3);
+                sudoku_box.width  *= 3; // Ha Ha
+                sudoku_box.height *= 3; // Ha Ha
 
                 DrawRectangleFrameRec(sudoku_box, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_BOX_LINE_COLOR);
             }
