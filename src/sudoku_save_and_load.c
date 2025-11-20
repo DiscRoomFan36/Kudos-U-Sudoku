@@ -212,7 +212,7 @@ typedef struct __attribute__((packed)) {
 
 } Sudoku_Save_Struct_Version_2;
 // TODO
-// static_assert(sizeof(Sudoku_Save_Struct_Version_2) == 32, "this size never changes");
+static_assert(sizeof(Sudoku_Save_Struct_Version_2) == 1344, "this size never changes");
 
 static_assert(CURRENT_SUDOKU_SAVE_VERSION_NUMBER == 2, "to change when new version");
 

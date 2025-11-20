@@ -18,7 +18,7 @@
 // all the memory in this program comes from here.
 global_variable Arena_Pool pool = ZEROED;
 
-internal Arena *Scratch_Get(void)            { return Pool_Get(&pool); }
+internal Arena *Scratch_Get(void)               { return Pool_Get(&pool); }
 internal void   Scratch_Release(Arena *scratch) { Pool_Release(&pool, scratch); }
 
 
@@ -288,12 +288,15 @@ internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKe
 
 
 
-
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+//                                   Main
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
 const char *autosave_path = "./build/autosave.sudoku";
 
 int main(void) {
-
     Arena *scratch = Pool_Get(&pool);
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
