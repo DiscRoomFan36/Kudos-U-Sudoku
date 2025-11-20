@@ -112,6 +112,7 @@ global_variable s32     window_height =  9*80;
 
 global_variable bool    debug_draw_smaller_cell_hitbox  = false;
 global_variable bool    debug_draw_cursor_position      = false;
+global_variable bool    debug_draw_fps                  = false;
 
 
 
@@ -295,6 +296,7 @@ int main(void) {
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(window_width, window_height, "Sudoku");
+    SetTargetFPS(60);
 
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
 
@@ -402,6 +404,9 @@ int main(void) {
 
         toggle_when_pressed(&debug_draw_smaller_cell_hitbox,    KEY_F1);
         toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
+
+        toggle_when_pressed(&debug_draw_fps,                    KEY_F3);
+        if (debug_draw_fps) DrawFPS(10, 10);
 
 
         local_persist bool in_solve_mode = true;
