@@ -284,13 +284,6 @@ internal void put_digit_on_layer(Sudoku_Grid *grid, u8 i, u8 j, s8 digit, Sudoku
 
 
 
-
-
-
-
-
-
-
 internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
 
 
