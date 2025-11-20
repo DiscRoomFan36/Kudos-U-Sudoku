@@ -15,10 +15,11 @@
 #include "raylib_helpers.c"
 
 
+// all the memory in this program comes from here.
+global_variable Arena_Pool pool = ZEROED;
 
-
-
-
+internal Arena *Scratch_Get(void)            { return Pool_Get(&pool); }
+internal void   Scratch_Release(Arena *scratch) { Pool_Release(&pool, scratch); }
 
 
 
@@ -153,9 +154,10 @@ typedef struct {
         // real digits are Black, players digits are marking color
         bool digit_placed_in_solve_mode;
 
-        u16 uncertain;
-        u16   certain;
-        // TODO color's
+        u16 uncertain; // bitfield's
+        u16   certain; // bitfield's
+
+        u32 color_bitfield; // color can be any pattern of bits, TODO use voronoi to generate color patterns.
         // TODO maybe also lines, but they whouldnt be in this struct.
     } markings[SUDOKU_SIZE][SUDOKU_SIZE];
 
@@ -179,12 +181,27 @@ typedef struct {
     } ui[SUDOKU_SIZE][SUDOKU_SIZE];
 
 
+    String name;
+    #define SUDOKU_MAX_NAME_LENGTH 128
+    char name_buf[SUDOKU_MAX_NAME_LENGTH+1];
+    u32 name_buf_count;
+
+
+
     // Undo
     //
     // the last item in this buffer is always the current grid.
     Sudoku_Grid_Array undo_buffer;
     u32 redo_count; // how many times you can redo.
 } Sudoku;
+
+
+
+typedef struct {
+    s8 *digit;
+    struct Marking *marking;
+} Sudoku_Grid_Cell;
+
 
 typedef struct {
     s8 *digit;
@@ -195,6 +212,19 @@ typedef struct {
 
 #define ASSERT_VALID_SUDOKU_ADDRESS(i, j)       ASSERT(Is_Between((i), 0, SUDOKU_SIZE) && Is_Between((j), 0, SUDOKU_SIZE))
 
+
+
+internal inline Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, u8 i, u8 j) {
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+    Sudoku_Grid_Cell result = {
+        .digit      = &grid->digits  [j][i],
+        .marking    = &grid->markings[j][i],
+    };
+    return result;
+}
+
+
+
 internal inline Sudoku_Cell get_cell(Sudoku *sudoku, u8 i, u8 j) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
     Sudoku_Cell result = {
@@ -204,6 +234,7 @@ internal inline Sudoku_Cell get_cell(Sudoku *sudoku, u8 i, u8 j) {
     };
     return result;
 }
+
 
 internal inline Rectangle get_cell_bounds(Sudoku *sudoku, u8 i, u8 j) {
     // while this dosnt nessesarily cause problems, i want this to be
@@ -246,156 +277,7 @@ internal void put_digit_on_layer(Sudoku_Grid *grid, u8 i, u8 j, s8 digit, Sudoku
 
 
 
-
-
-
-///////////////////////////////////////////////////////////////////////////
-//                          Save / Load Sudoku
-///////////////////////////////////////////////////////////////////////////
-
-#define MAX_TEMP_FILE_SIZE      (32 * KILOBYTE)
-// overwrites temeratry buffer every call.
-internal String temp_Read_Entire_File(const char *filename) {
-    local_persist u8 temp_file_storeage[MAX_TEMP_FILE_SIZE];
-
-    FILE *file = fopen(filename, "rb");
-    String result = ZEROED;
-    result.data = (void*) temp_file_storeage;
-
-    if (file) {
-        fseek(file, 0, SEEK_END);
-        s64 size = Min((s64)MAX_TEMP_FILE_SIZE, ftell(file));
-        fseek(file, 0, SEEK_SET);
-
-        if (size >= 0) {
-            result.length = size;
-            fread(result.data, 1, result.length, file);
-        }
-        fclose(file);
-    }
-
-    return result;
-}
-
-
-
-
-
-
-typedef u32     Magic_Number;
-typedef u32     Version_Number;
-
-
-u8 SUDOKU_MAGIC_NUMBER_ARRAY[sizeof(Version_Number)] = {'S', 'U', 'D', 'K'};
-#define SUDOKU_MAGIC_NUMBER         (*(u32*)SUDOKU_MAGIC_NUMBER_ARRAY)
-
-#define CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER      1
-
-
-
-#define SUDOKU_SIZE_VERSION_1           9
-
-typedef struct {
-    Magic_Number    magic_number;
-    Version_Number  version_number;
-
-    s8  digits_on_the_grid[SUDOKU_SIZE_VERSION_1][SUDOKU_SIZE_VERSION_1];
-
-    struct Markings_V1 {
-        u16 uncertain;
-        u16   certain;
-    } digit_markings_on_the_grid[SUDOKU_SIZE_VERSION_1][SUDOKU_SIZE_VERSION_1];
-} Sudoku_Save_Struct_Version_1;
-
-typedef Sudoku_Save_Struct_Version_1        Sudoku_Save_Struct;
-static_assert(CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER == 1, "to change when new version");
-
-
-
-
-
-static_assert(Member_Size(Sudoku_Save_Struct, digits_on_the_grid) == Member_Size(Sudoku, grid.digits), "change when we can change the size of the grid.");
-
-
-// returns NULL on succsess, else returns error message
-internal const char *load_sudoku_version_1(const char *filename, Sudoku *result) {
-    String file = temp_Read_Entire_File(filename);
-    if (file.length == 0) return "Could not read file for some reason, or file was empty.";
-
-    if (file.length < sizeof(u64)) return "File was to small to contain header and version number";
-
-    Sudoku_Save_Struct_Version_1 *save_struct = (void*) file.data;
-
-
-    // Check if the file is valid.
-
-    // TODO extract this into its own function to help when making more load functions
-    if (save_struct->magic_number   != SUDOKU_MAGIC_NUMBER) return temp_sprintf("Magic number was incorrect. wanted (0x%X), got (0x%X)", SUDOKU_MAGIC_NUMBER, save_struct->magic_number);
-    if (save_struct->version_number != 1) return temp_sprintf("Wanted version number (1), got (%d)", save_struct->version_number);
-
-    if (file.length != sizeof(Sudoku_Save_Struct_Version_1)) return temp_sprintf("incorrect file size for version 1, wanted (%ld), got (%ld)", sizeof(Sudoku_Save_Struct_Version_1), file.length);
-
-
-    for (u8 j = 0; j < Array_Len(save_struct->digits_on_the_grid); j++) {
-        for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
-            s8 digit = save_struct->digits_on_the_grid[j][i];
-            if (!Is_Between(digit, -1, 9)) return temp_sprintf("(%d, %d) was outside the acceptible range [-1, 9], was, %d", i, j, digit);
-
-            struct Markings_V1 markings = save_struct->digit_markings_on_the_grid[j][i];
-            (void) markings; // TODO validate this.
-        }
-    }
-
-
-    // load into Sudoku_Grid
-    if (result) {
-        static_assert(CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER == 1, "to change when new version");
-        static_assert(SUDOKU_SIZE_VERSION_1 == SUDOKU_SIZE, "would be pretty dump to miss this...");
-
-        for (u8 j = 0; j < Array_Len(save_struct->digits_on_the_grid); j++) {
-            for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
-                Sudoku_Cell cell = get_cell(result, i, j);
-
-                *cell.digit = save_struct->digits_on_the_grid[j][i];
-
-                cell.marking->uncertain = save_struct->digit_markings_on_the_grid[j][i].uncertain;
-                cell.marking->  certain = save_struct->digit_markings_on_the_grid[j][i].  certain;
-
-                // clear these also.
-                cell.ui->is_selected = false;
-                cell.ui->is_hovering_over = false;
-            }
-        }
-    }
-    return NULL;
-}
-
-// returns wheather or not the file was saved succsessfully.
-internal bool save_sudoku(const char *filename, Sudoku *to_save) {
-    ASSERT(to_save);
-
-    printf("Saving sudoku version %d\n", CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER);
-
-    Sudoku_Save_Struct sudoku_save_struct = ZEROED;
-
-    sudoku_save_struct.magic_number = SUDOKU_MAGIC_NUMBER;
-
-    sudoku_save_struct.version_number = CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER;
-
-    for (u8 j = 0; j < Array_Len(sudoku_save_struct.digits_on_the_grid); j++) {
-        for (u8 i = 0; i < Array_Len(sudoku_save_struct.digits_on_the_grid[j]); i++) {
-            Sudoku_Cell cell = get_cell(to_save, i, j);
-            sudoku_save_struct.digits_on_the_grid[j][i] = *cell.digit;
-
-            sudoku_save_struct.digit_markings_on_the_grid[j][i].uncertain = cell.marking->uncertain;
-            sudoku_save_struct.digit_markings_on_the_grid[j][i].  certain = cell.marking->  certain;
-        }
-    }
-
-
-    // raylib function. dont really need this but whatever.
-    return SaveFileData(filename, &sudoku_save_struct, sizeof(sudoku_save_struct));
-}
+#include "sudoku_save_and_load.c"
 
 
 
@@ -413,10 +295,9 @@ internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKe
 
 
 
-Arena_Pool pool = ZEROED;
 
 
-const char *save_path = "./build/save.sudoku";
+const char *autosave_path = "./build/autosave.sudoku";
 
 int main(void) {
 
@@ -432,14 +313,22 @@ int main(void) {
     sudoku.undo_buffer.allocator = Pool_Get(&pool);
     Array_Reserve(&sudoku.undo_buffer, 512); // just give it some room.
 
+
     {
-        const char *error = load_sudoku_version_1(save_path, &sudoku);
+        const char *error = load_sudoku(autosave_path, &sudoku);
         if (error) {
-            fprintf(stderr, "Failed To Load Save '%s': %s\n", save_path, error);
+            fprintf(stderr, "Failed To Load Save '%s': %s\n", autosave_path, error);
+            // TODO make a "clear grid" function.
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    *get_cell(&sudoku, i, j).digit = NO_DIGIT_PLACED;
+                }
+            }
         } else {
-            printf("Succsessfully loaded save file '%s'\n", save_path);
+            printf("Succsessfully loaded save file '%s'\n", autosave_path);
         }
     }
+
 
 #define Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku) Mem_Eq(&(sudoku)->grid, &(sudoku)->undo_buffer.items[(sudoku)->undo_buffer.count-1], sizeof((sudoku)->grid))
 
@@ -996,7 +885,7 @@ int main(void) {
     }
 
 
-    bool result = save_sudoku(save_path, &sudoku);
+    bool result = save_sudoku(autosave_path, &sudoku);
 
     UnloadDynamicFonts();
 
