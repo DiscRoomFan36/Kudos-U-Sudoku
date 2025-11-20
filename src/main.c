@@ -122,12 +122,6 @@ global_variable bool    debug_draw_cursor_position      = false;
 #define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
 
 
-internal f32 map(f32 x, f32 min, f32 max, f32 start, f32 end) {
-    ASSERT(min <= max);
-    f32 a = (x - min) / (max - min); // map to [0..1]
-    return a * (end - start) + start; // lerp
-}
-
 
 ///////////////////////////////////////////////////////////////////////////
 //                          Sudoku Struct & Stuff
@@ -763,7 +757,7 @@ int main(void) {
 
                         s32 font_size = FONT_SIZE_MARKING_CERTAIN_MAX_SIZE;
                         if (certain_numbers.count > MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING) {
-                            font_size = map(
+                            font_size = Remap(
                                 certain_numbers.count,
                                 MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING, SUDOKU_MAX_MARKINGS,
                                 FONT_SIZE_MARKING_CERTAIN_MAX_SIZE, FONT_SIZE_MARKING_CERTAIN_MIN_SIZE

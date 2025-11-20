@@ -100,10 +100,21 @@ internal Font_And_Size GetFontWithSize(s32 font_size) {
 
 
 
+// towards nearest number.
+internal int Round(float x) {
+    if (x >= 0) return (int)(x + 0.5);
+    else        return (int)(x - 0.5);
+}
+
 internal void DrawTextCentered(Font_And_Size font_and_size, const char *text, Vector2 position, Color color) {
     Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
     position.x -= text_size.x/2; // center text
     position.y -= text_size.y/2; // center text
+
+    // if a font is drawn inbetween pixels, it looks dumb
+    position.x = Round(position.x);
+    position.y = Round(position.y);
+
     DrawTextEx(font_and_size.font, text, position, font_and_size.size, 0, color);
 }
 
