@@ -49,6 +49,7 @@ static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 4)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 
 #define BACKGROUND_COLOR                    WHITE   // @Color
+#define SUDOKU_CELL_BACKGROUND_COLOR        WHITE   // @Color
 #define SUDOKU_CELL_LINE_COLOR              GRAY    // @Color
 #define SUDOKU_BOX_LINE_COLOR               BLACK   // @Color
 
@@ -166,7 +167,7 @@ typedef struct {
 
 
 
-// SOA style, probably i bit overkill.
+// SOA style, probably a bit overkill.
 typedef struct {
     Sudoku_Grid grid;
 
@@ -330,6 +331,7 @@ int main(void) {
     }
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
 
+    RenderTexture2D debug_texture = LoadRenderTexture(window_width, window_height);
 
     while (!WindowShouldClose()) {
         ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
@@ -340,8 +342,28 @@ int main(void) {
         BeginDrawing();
         ClearBackground(BACKGROUND_COLOR);
 
-        window_width    = GetScreenWidth();
-        window_height   = GetScreenHeight();
+        {
+            s32 prev_window_width  = window_width;
+            s32 prev_window_height = window_height;
+
+            window_width    = GetScreenWidth();
+            window_height   = GetScreenHeight();
+
+            if (prev_window_width != window_width || prev_window_height != window_height) {
+                UnloadRenderTexture(debug_texture);
+                debug_texture = LoadRenderTexture(window_width, window_height);
+            }
+        }
+
+
+        BeginTextureMode(debug_texture);
+            ClearBackground(ColorAlpha(BLACK, 0));
+        EndTextureMode();
+
+
+        #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
+
+
 
         ////////////////////////////////
         //        User Input
@@ -406,7 +428,7 @@ int main(void) {
         toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
 
         toggle_when_pressed(&debug_draw_fps,                    KEY_F3);
-        if (debug_draw_fps) DrawFPS(10, 10);
+        if (debug_draw_fps) DebugDraw(DrawFPS(10, 10));
 
 
         local_persist bool in_solve_mode = true;
@@ -452,7 +474,7 @@ int main(void) {
 
             if (debug_draw_cursor_position) {
                 Rectangle rec = get_cell_bounds(&sudoku, cursor_x, cursor_y);
-                DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.5));
+                DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
             }
         }
 
@@ -496,7 +518,8 @@ int main(void) {
             }
         }
 
-        if (input.keyboard.control_down && input.keyboard.key.x_pressed) { // TODO cntl-x should be cut, but we dont have that yet.
+        // TODO cntl-x should be cut, but we dont have that yet.
+        if (input.keyboard.control_down && input.keyboard.key.x_pressed) {
             if (sudoku.redo_count > 0) {
                 sudoku.undo_buffer.count    += 1;
                 sudoku.redo_count           -= 1;
@@ -554,6 +577,10 @@ int main(void) {
 
 
             // phase 2
+
+            // NOTE this begin/end TextureMode stuff is because if it was inside
+            // this 9*9 loop, it drags the fps down to 30.
+            if (debug_draw_smaller_cell_hitbox) BeginTextureMode(debug_texture);
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                     Sudoku_Cell cell        = get_cell(&sudoku, i, j);
@@ -561,7 +588,7 @@ int main(void) {
 
                     // selected stuff, mouse dragging
                     Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
-                    if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
+                    if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
                     if (input.mouse.left.down && CheckCollisionPointRec(input.mouse.pos, smaller_hitbox)) {
                         cell.ui->is_selected = when_dragging_to_set_selected_to;
@@ -569,6 +596,7 @@ int main(void) {
                     }
                 }
             }
+            if (debug_draw_smaller_cell_hitbox) EndTextureMode();
         }
 
 
@@ -711,6 +739,8 @@ int main(void) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell cell        = get_cell(&sudoku, i, j);
                 Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
+
+                DrawRectangleRec(cell_bounds, SUDOKU_CELL_BACKGROUND_COLOR);
 
                 {
                     Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
@@ -875,6 +905,12 @@ int main(void) {
             }
         }
 
+        {
+            Rectangle sourceRec = { 0, 0, debug_texture.texture.width, -debug_texture.texture.height };
+            Rectangle destRec   = { 0, 0, window_width, window_height };
+            DrawTexturePro(debug_texture.texture, sourceRec, destRec, Vector2Zero(), 0, WHITE);
+            // DrawTexture(debug_texture.texture, 0, 0, WHITE);
+        }
 
         EndDrawing();
     }
@@ -882,6 +918,7 @@ int main(void) {
 
     bool result = save_sudoku(autosave_path, &sudoku);
 
+    UnloadRenderTexture(debug_texture);
     UnloadDynamicFonts();
 
     CloseWindow();

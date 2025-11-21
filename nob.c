@@ -43,6 +43,7 @@ bool build_debug(void) {
     cmd_cc();
     cmd_c_flags();
     cmd_debug();
+    // cmd_append(&cmd, "-O2");
     cmd_append(&cmd, "-o", BUILD_FOLDER"main_debug");
     cmd_append(&cmd, SRC_FOLDER"main.c");
     cmd_link_with_raylib();
@@ -77,21 +78,6 @@ int main(int argc, char **argv) {
     }
 
     mkdir_if_not_exists(BUILD_FOLDER);
-
-
-    if (argc == 2) {
-        if (strcmp(argv[1], "hotreload") == 0) {
-            if (!build_debug()) return 1;
-        } else {
-            fprintf(stderr, "unknown command '%s'\n", argv[1]);
-            return 1;
-        }
-        return 0;
-    } else if (argc != 1) {
-        fprintf(stderr, "invalid number of arguments %d\n", argc);
-        return 1;
-    }
-
 
     if (!build_debug())     return 1;
     // if (!build_release())   return 1;
