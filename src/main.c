@@ -331,7 +331,15 @@ int main(void) {
     }
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
 
+
+    // the perhaps better option would be to make DebugDraw## versions of the draw
+    // functions that buffer the commands until later, but that would require
+    // making a bunch of extra functions...
+    //
+    // another option would be to somehow draw rectangles with depth,
+    // and make debug stuff the most important.
     RenderTexture2D debug_texture = LoadRenderTexture(window_width, window_height);
+
 
     while (!WindowShouldClose()) {
         ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
@@ -343,8 +351,8 @@ int main(void) {
         ClearBackground(BACKGROUND_COLOR);
 
         {
-            s32 prev_window_width  = window_width;
-            s32 prev_window_height = window_height;
+            s32 prev_window_width   = window_width;
+            s32 prev_window_height  = window_height;
 
             window_width    = GetScreenWidth();
             window_height   = GetScreenHeight();
@@ -355,13 +363,11 @@ int main(void) {
             }
         }
 
-
-        BeginTextureMode(debug_texture);
-            ClearBackground(ColorAlpha(BLACK, 0));
-        EndTextureMode();
-
-
         #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
+
+        // Clear debug to all zero's
+        DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
+
 
 
 
