@@ -886,41 +886,8 @@ int main(void) {
                             DrawTrianglesFromStartPoint(fan_points, fan_points_count, color);
                         }
 
-
-
-
-                        /*
-                        BeginTextureMode(cell_background_texture);
-                        // voranoi all the pixels
-                        for (u32 y = 0; y < SUDOKU_CELL_SIZE; y++) {
-                            for (u32 x = 0; x < SUDOKU_CELL_SIZE; x++) {
-                                Vector2 position = {x + 0.5, y + 0.5};
-
-                                u32 closest_point = 0;
-                                f32 closest_dist = Vector2DistanceSqr(position, points[0]);
-                                for (u32 k = 1; k < points_count; k++) {
-                                    f32 dist = Vector2DistanceSqr(position, points[k]);
-                                    if (dist < closest_dist) {
-                                        closest_point = k;
-                                        closest_dist  = dist;
-                                    }
-                                }
-
-                                // TODO this should correspont to the color_bitfield
-                                Color color = colors[color_bits.items[closest_point]];
-                                // DrawPixelV(Vector2Add(position, top_left), color);
-                                DrawPixel(x, y, color);
-                            }
-                        }
-                        EndTextureMode();
-                        DrawTextureRightsideUpV(cell_background_texture.texture, RectangleTopLeft(cell_bounds));
-                        */
-
-
-                        // DrawRectangleRec(cell_bounds, RED);
                     }
                 }
-
 
 
 
