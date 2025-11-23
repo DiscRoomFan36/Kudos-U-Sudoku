@@ -29,6 +29,13 @@ typedef struct {
     s64 *items;
 } Int_Array;
 
+typedef struct {
+    _Array_Header_;
+    Vector2 *items;
+} Vector2_Array;
+
+
+
 
 
 
@@ -113,8 +120,8 @@ global_variable s32     window_height =  9*80;
 
 global_variable bool    debug_draw_smaller_cell_hitbox  = false;
 global_variable bool    debug_draw_cursor_position      = false;
-global_variable bool    debug_draw_fps                  = false;
-
+global_variable bool    debug_draw_color_points         = false;
+global_variable bool    debug_draw_fps                  = true;
 
 
 
@@ -223,6 +230,8 @@ internal inline Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, u8 i, u8 j) {
 
 internal inline Sudoku_Cell get_cell(Sudoku *sudoku, u8 i, u8 j) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+    ASSERT(sudoku);
+
     Sudoku_Cell result = {
         .digit          = &sudoku->grid.digits  [j][i],
         .marking        = &sudoku->grid.markings[j][i],
@@ -251,22 +260,46 @@ internal inline Rectangle get_cell_bounds(Sudoku *sudoku, u8 i, u8 j) {
         SUDOKU_CELL_SIZE,
     };
 
+    // // everything is MUCH nicer when this is the case.
+    // sudoku_cell.x = Round(sudoku_cell.x);
+    // sudoku_cell.y = Round(sudoku_cell.y);
+
     return sudoku_cell;
 }
 
 
 /*
-internal void put_digit_on_layer(Sudoku_Grid *grid, u8 i, u8 j, s8 digit, Sudoku_UI_Layer layer) {
+typedef enum {
+    PDA_PLACE,
+    PDA_REMOVE,
+    PDA_CLEAR,
+} Put_Digit_Action;
+
+internal void put_digit_on_layer(
+    Sudoku_Grid *grid, u8 i, u8 j,
+    Sudoku_UI_Layer layer, Put_Digit_Action action, s8 digit, bool in_solve_mode
+) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
-    Sudoku_Grid_Cell cell = get_cell(grid, i, j);
+    ASSERT(grid);
+
+    Sudoku_Grid_Cell cell = get_grid_cell(grid, i, j);
 
     switch (layer) {
-        case SUL_DIGIT: {
-            if (*cell.digit == digit)
-        } break;
-        case SUL_CERTAIN:   { TODO("SUL_CERTAIN");  } break;
-        case SUL_UNCERTAIN: { TODO("SUL_UNCERTAIN");  } break;
-        case SUL_COLOR:     { TODO("SUL_COLOR");  } break;
+    case SUL_DIGIT: {
+        switch (action) {
+        }
+        if (place_digit) {
+            ASSERT(digit != NO_DIGIT_PLACED); // use !place_digit for this
+            *cell.digit = digit;
+        } else {
+            *cell.digit = NO_DIGIT_PLACED;
+        }
+    } break;
+    case SUL_CERTAIN: {
+
+    } break;
+    case SUL_UNCERTAIN: { TODO("SUL_UNCERTAIN");  } break;
+    case SUL_COLOR:     { TODO("SUL_COLOR");  } break;
     }
 }
 */
@@ -301,6 +334,21 @@ int main(void) {
 
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
 
+    // the perhaps better option would be to make DebugDraw## versions of the draw
+    // functions that buffer the commands until later, but that would require
+    // making a bunch of extra functions...
+    //
+    // another option would be to somehow draw rectangles with depth,
+    // and make debug stuff the most important.
+    RenderTexture2D debug_texture = LoadRenderTexture(window_width, window_height);
+
+#define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
+
+
+    RenderTexture2D cell_background_texture = LoadRenderTexture(SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE);
+
+
+
     Sudoku sudoku = ZEROED;
     // make sure that load_sudoku_version_1(), respects this alloctor
     sudoku.undo_buffer.allocator = Pool_Get(&pool);
@@ -332,14 +380,6 @@ int main(void) {
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
 
 
-    // the perhaps better option would be to make DebugDraw## versions of the draw
-    // functions that buffer the commands until later, but that would require
-    // making a bunch of extra functions...
-    //
-    // another option would be to somehow draw rectangles with depth,
-    // and make debug stuff the most important.
-    RenderTexture2D debug_texture = LoadRenderTexture(window_width, window_height);
-
 
     while (!WindowShouldClose()) {
         ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
@@ -363,7 +403,6 @@ int main(void) {
             }
         }
 
-        #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
         // Clear debug to all zero's
         DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
@@ -432,8 +471,10 @@ int main(void) {
 
         toggle_when_pressed(&debug_draw_smaller_cell_hitbox,    KEY_F1);
         toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
+        toggle_when_pressed(&debug_draw_color_points,           KEY_F3);
 
-        toggle_when_pressed(&debug_draw_fps,                    KEY_F3);
+
+        toggle_when_pressed(&debug_draw_fps,                    KEY_F4);
         if (debug_draw_fps) DebugDraw(DrawFPS(10, 10));
 
 
@@ -496,9 +537,11 @@ int main(void) {
 
         // determines wheather a number was pressed to put it into the grid.
         s8 number_pressed = NO_DIGIT_PLACED;
-        u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
-        for (u32 i = 0; i < Array_Len(number_keys); i++) {
-            if (IsKeyPressed(number_keys[i]))   number_pressed = i;
+        {
+            u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
+            for (u32 i = 0; i < Array_Len(number_keys); i++) {
+                if (IsKeyPressed(number_keys[i]))   number_pressed = i;
+            }
         }
 
 
@@ -631,7 +674,9 @@ int main(void) {
                         case SUL_UNCERTAIN: {
                             if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->uncertain & (1 << (number_pressed)));
                         } break;
-                        case SUL_COLOR: { /* TODO("figure out what to Color the cell"); */ } break;
+                        case SUL_COLOR: {
+                            remove_number_this_press = remove_number_this_press && (cell.marking->color_bitfield & (1 << (number_pressed)));
+                        } break;
                     }
                 }
             }
@@ -661,19 +706,22 @@ int main(void) {
 
                     case SUL_CERTAIN: {
                         if (!has_digit) {
-                            if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
-                            else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
+                            if (remove_number_this_press)   cell.marking->  certain &= ~(1 << number_pressed);
+                            else                            cell.marking->  certain |=  (1 << number_pressed);
                         }
                     } break;
 
                     case SUL_UNCERTAIN: {
                         if (!has_digit) {
-                            if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
-                            else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
+                            if (remove_number_this_press)   cell.marking->uncertain &= ~(1 << number_pressed);
+                            else                            cell.marking->uncertain |=  (1 << number_pressed);
                         }
                     } break;
 
-                    case SUL_COLOR: { /* TODO("Color the cell"); */ } break;
+                    case SUL_COLOR: {
+                        if (remove_number_this_press)   cell.marking->color_bitfield &= ~(1 << number_pressed);
+                        else                            cell.marking->color_bitfield |=  (1 << number_pressed);
+                    } break;
                     }
                 }
             }
@@ -698,7 +746,7 @@ int main(void) {
                     if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
                     if (cell.marking->  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
                     if (cell.marking->uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
-                    // Color is the lowest priority
+                    if (cell.marking->color_bitfield)       layer_to_delete = Min(layer_to_delete, SUL_COLOR);
                 }
             }
 
@@ -719,9 +767,9 @@ int main(void) {
                             cell.marking->digit_placed_in_solve_mode = false;
                         }
                     } break;
-                    case SUL_CERTAIN:   { cell.marking->  certain = 0; } break;
-                    case SUL_UNCERTAIN: { cell.marking->uncertain = 0; } break;
-                    case SUL_COLOR: { /* printf("TODO: Color the cell\n"); */ } break;
+                    case SUL_CERTAIN:   { cell.marking->  certain      = 0; } break;
+                    case SUL_UNCERTAIN: { cell.marking->uncertain      = 0; } break;
+                    case SUL_COLOR:     { cell.marking->color_bitfield = 0; } break;
                     }
                 }
             }
@@ -746,7 +794,136 @@ int main(void) {
                 Sudoku_Cell cell        = get_cell(&sudoku, i, j);
                 Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
 
-                DrawRectangleRec(cell_bounds, SUDOKU_CELL_BACKGROUND_COLOR);
+
+                { // draw color shading / cell background
+                    Int_Array color_bits = ZEROED;
+                    color_bits.allocator = scratch;
+
+                    #define MAX_BITS_SET    (sizeof(cell.marking->color_bitfield)*8)
+
+                    // loop over all bits, and get the index's of the colors.
+                    for (u32 k = 0; k < MAX_BITS_SET; k++) {
+                        if (cell.marking->color_bitfield & (1 << k)) Array_Append(&color_bits, k);
+                    }
+
+                    Color colors[MAX_BITS_SET] = {
+                        RED, YELLOW, BLUE, GREEN, GRAY, ORANGE,
+                        YELLOW, PURPLE, DARKGRAY, RAYWHITE, MAROON,
+                    };
+
+                    if (color_bits.count == 0) {
+                        DrawRectangleRec(cell_bounds, SUDOKU_CELL_BACKGROUND_COLOR);
+                    } else if (color_bits.count == 1) {
+                        DrawRectangleRec(cell_bounds, colors[color_bits.items[0]]); // a very obvious special case.
+                    } else {
+
+
+                        Vector2 points[MAX_BITS_SET];
+                        u32 points_count = color_bits.count;
+
+                        for (u32 point_index = 0; point_index < points_count; point_index++) {
+                            f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
+                            f32 percent = (f32)point_index / (f32)points_count;
+                            // -percent makes the points be done in clockwise order.
+                            points[point_index].x = sinf(-percent * TAU - PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
+                            points[point_index].y = cosf(-percent * TAU - PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
+
+                            // NOTE this option will always case lag, because its
+                            // turning off and on again in such quick succsesstion,
+                            if (debug_draw_color_points) {
+                                Color color = colors[color_bits.items[point_index]];
+                                DebugDraw(DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color));
+                            }
+                        }
+
+
+                        // i dont want to write a shader, so im gonna try math.
+
+                        Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
+
+                        Line *rectangle_lines = RectangleToLines((Rectangle){0, 0, SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE});
+                        for (u32 point_index = 0; point_index < points_count; point_index++) {
+                            Vector2 fan_points[8] = {middle};
+                            u32 fan_points_count = 1;
+
+                            Vector2 point = points[point_index];
+
+                            Line line_checking = {.start = middle, .end = point};
+                            bool seen_start = false;
+                            bool seen_end   = false;
+                            // 4 + 1 means we have to check the top edge of the rec again, could probablty
+                            // restructure this loop so we dont have to check everty edge every time but what ever.
+                            for (u32 rec_line_index = 0; rec_line_index < 4 + 1; rec_line_index++) {
+                            again:;
+
+                                Line rec_line = rectangle_lines[rec_line_index % 4];
+
+                                Vector2 hit_loc;
+                                bool hit = CheckCollisionLinesL(line_checking, rec_line, &hit_loc);
+                                if (hit) {
+                                    if (!seen_start) {
+                                        seen_start = true;
+                                        fan_points[fan_points_count++] = hit_loc;
+                                        line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
+                                        goto again;
+                                    } else {
+                                        seen_end = true;
+                                        fan_points[fan_points_count++] = hit_loc;
+                                        break;
+                                    }
+                                }
+                                if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner in the picture.
+                            }
+
+                            ASSERT(seen_start && seen_end);
+                            ASSERT(fan_points_count <= 5);
+
+                            Color color = colors[color_bits.items[point_index]];
+                            for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
+                                fan_points[fan_index].x += cell_bounds.x;
+                                fan_points[fan_index].y += cell_bounds.y;
+                            }
+                            DrawTrianglesFromStartPoint(fan_points, fan_points_count, color);
+                        }
+
+
+
+
+                        /*
+                        BeginTextureMode(cell_background_texture);
+                        // voranoi all the pixels
+                        for (u32 y = 0; y < SUDOKU_CELL_SIZE; y++) {
+                            for (u32 x = 0; x < SUDOKU_CELL_SIZE; x++) {
+                                Vector2 position = {x + 0.5, y + 0.5};
+
+                                u32 closest_point = 0;
+                                f32 closest_dist = Vector2DistanceSqr(position, points[0]);
+                                for (u32 k = 1; k < points_count; k++) {
+                                    f32 dist = Vector2DistanceSqr(position, points[k]);
+                                    if (dist < closest_dist) {
+                                        closest_point = k;
+                                        closest_dist  = dist;
+                                    }
+                                }
+
+                                // TODO this should correspont to the color_bitfield
+                                Color color = colors[color_bits.items[closest_point]];
+                                // DrawPixelV(Vector2Add(position, top_left), color);
+                                DrawPixel(x, y, color);
+                            }
+                        }
+                        EndTextureMode();
+                        DrawTextureRightsideUpV(cell_background_texture.texture, RectangleTopLeft(cell_bounds));
+                        */
+
+
+                        // DrawRectangleRec(cell_bounds, RED);
+                    }
+                }
+
+
+
+
 
                 {
                     Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
@@ -914,20 +1091,20 @@ int main(void) {
             }
         }
 
-        {
-            Rectangle sourceRec = { 0, 0, debug_texture.texture.width, -debug_texture.texture.height };
-            Rectangle destRec   = { 0, 0, window_width, window_height };
-            DrawTexturePro(debug_texture.texture, sourceRec, destRec, Vector2Zero(), 0, WHITE);
-            // DrawTexture(debug_texture.texture, 0, 0, WHITE);
-        }
+
+        DrawTextureRightsideUp(debug_texture.texture, 0, 0);
 
         EndDrawing();
     }
 
 
     bool result = save_sudoku(autosave_path, &sudoku);
+    if (!result) {
+        fprintf(stderr, "something went wrong when saveing\n");
+    }
 
     UnloadRenderTexture(debug_texture);
+    UnloadRenderTexture(cell_background_texture);
     UnloadDynamicFonts();
 
     CloseWindow();

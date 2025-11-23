@@ -7,11 +7,53 @@
 #include <raymath.h>
 
 
+typedef union Line {
+    struct { Vector2 start, end; };
+    struct { float x1, y1, x2, y2; };
+} Line;
+
+#define CheckCollisionLinesL(l1, l2, hit_location)      CheckCollisionLines((l1).start, (l1).end, (l2).start, (l2).end, (hit_location))
 
 
 ////////////////////////////////////////
 //         Rectangle Helpers
 ////////////////////////////////////////
+
+internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
+    Rectangle result = {
+        rec.x + value, rec.y + value,
+        rec.width   - value*2,
+        rec.height  - value*2,
+    };
+    return result;
+}
+
+#define GrowRectangle(rec, value)       ShrinkRectangle((rec), -(value))
+
+
+internal inline Vector2 RectangleTopLeft(Rectangle rec) {
+    Vector2 result = {rec.x, rec.y};
+    return result;
+}
+
+Vector2 RectangleCenter(Rectangle rec) {
+    Vector2 result = {rec.x + rec.width, rec.y + rec.height};
+    return result;
+}
+
+
+// returns a static list of 4 lines, clears on every call,
+// could fix that though
+internal Line *RectangleToLines(Rectangle rec) {
+    local_persist Line result[4];
+    result[0] = (Line){.start = {rec.x,             rec.y             }, .end = {rec.x + rec.width, rec.y             }};
+    result[1] = (Line){.start = {rec.x + rec.width, rec.y             }, .end = {rec.x + rec.width, rec.y + rec.height}};
+    result[2] = (Line){.start = {rec.x + rec.width, rec.y + rec.height}, .end = {rec.x,             rec.y + rec.height}};
+    result[3] = (Line){.start = {rec.x,             rec.y + rec.height}, .end = {rec.x,             rec.y             }};
+    return result;
+}
+
+
 
 
 #define DrawRectangleFrame(x, y, width, height, lineThick, color) \
@@ -30,19 +72,6 @@ internal void DrawRectangleFrameRec(Rectangle rec, float lineThick, Color color)
     Rectangle Right  = { rec.x + rec.width - lineThick, rec.y + lineThick,              lineThick, rec.height - lineThick*2 };
     DrawRectangleRec(Right, color);
 }
-
-
-internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
-    Rectangle result = {
-        rec.x + value, rec.y + value,
-        rec.width   - value*2,
-        rec.height  - value*2,
-    };
-    return result;
-}
-
-#define GrowRectangle(rec, value)       ShrinkRectangle((rec), -(value))
-
 
 
 ////////////////////////////////////////
@@ -117,4 +146,73 @@ internal void DrawTextCentered(Font_And_Size font_and_size, const char *text, Ve
 
     DrawTextEx(font_and_size.font, text, position, font_and_size.size, 0, color);
 }
+
+
+
+
+////////////////////////////////////////
+//             Textures
+////////////////////////////////////////
+
+
+#define DrawTextureRightsideUp(texture, x, y)      DrawTextureRightsideUpV((texture), (Vector2){(x), (y)})
+
+internal void DrawTextureRightsideUpV(Texture texture, Vector2 position) {
+    Rectangle sourceRec = { 0, 0, texture.width, -texture.height };
+    Rectangle destRec   = { position.x, position.y, texture.width, texture.height };
+    DrawTexturePro(texture, sourceRec, destRec, Vector2Zero(), 0, WHITE);
+}
+
+
+
+////////////////////////////////////////
+//             Triangle
+////////////////////////////////////////
+
+internal bool PointsAreCounterClockwise(Vector2 p1, Vector2 p2, Vector2 p3) {
+    f32 A = p2.x*p1.y + p3.x*p2.y + p1.x*p3.y;
+    f32 B = p1.x*p2.y + p2.x*p3.y + p3.x*p1.y;
+    return A < B;
+}
+
+// puts the points in counter clockwise order
+internal void NormalizeTriangle(Vector2 *ptr_p1, Vector2 *ptr_p2, Vector2 *ptr_p3) {
+    ASSERT(ptr_p1 && ptr_p2 && ptr_p3);
+
+    Vector2 p1 = *ptr_p1;
+    Vector2 p2 = *ptr_p2;
+    Vector2 p3 = *ptr_p3;
+
+// make sure to use the real variables. (or could make this function accept pointers.)
+#define Swap(x, y) do { Typeof(x) temp = x; x = y; y = temp; } while (0)
+
+    if (PointsAreCounterClockwise(p1, p2, p3)) Swap(p1, p3);
+
+    ASSERT(!PointsAreCounterClockwise(p1, p2, p3));
+
+    // sort y lowest to highest.
+    // if (p1.y > p2.y) Swap(p1, p2);
+    // if (p2.y > p3.y) Swap(p2, p3);
+    // if (p1.y > p2.y) Swap(p1, p2);
+
+    // if (p2.x > p3.x) Swap(p2, p3);
+
+
+    *ptr_p1 = p1;
+    *ptr_p2 = p2;
+    *ptr_p3 = p3;
+}
+
+internal void DrawTrianglesFromStartPoint(const Vector2 *points, int points_count, Color color) {
+    if (points_count == 0) return;
+
+    for (s32 i = 2; i < points_count; i++) {
+        Vector2 p1 = points[0];
+        Vector2 p2 = points[i-1];
+        Vector2 p3 = points[i];
+        NormalizeTriangle(&p1, &p2, &p3);
+        DrawTriangle(p1, p2, p3, color);
+    }
+}
+
 

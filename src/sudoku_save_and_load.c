@@ -387,6 +387,10 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
 
     // Would be kinda awkward, we cant load this...
     u64 size_of_file = String_Builder_Count(&sb);
+    if (size_of_file > MAX_TEMP_FILE_SIZE) {
+        fprintf(stderr, "ERROR: file is to big to fit into temperary buffer, is %.2fMB (%lu)\n", (f64)size_of_file / (f64)MEGABYTE, size_of_file);
+    }
+
 
     bool result = false;
     FILE *f = fopen(filename, "wb");

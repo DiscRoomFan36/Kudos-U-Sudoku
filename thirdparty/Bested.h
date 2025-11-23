@@ -1571,7 +1571,7 @@ internal Character_Buffer *String_Builder_Internal_Maybe_Expand_To_Fit(String_Bu
 // but it will probably never come up as a performance problem.
 internal inline Character_Buffer *String_Builder_Internal_Get_Character_Buffer_At_Index(String_Builder *sb, u64 buffer_index) {
     Segment *segment = &sb->first_segment_holder;
-    while (buffer_index > STRING_BUILDER_NUM_BUFFERS) {
+    while (buffer_index >= STRING_BUILDER_NUM_BUFFERS) {
         buffer_index -= STRING_BUILDER_NUM_BUFFERS;
         segment = segment->next;
     }
