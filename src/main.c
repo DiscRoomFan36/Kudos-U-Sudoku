@@ -826,10 +826,22 @@ int main(void) {
                     if (color_bits.count == 0) {
                         DrawRectangleRec(cell_bounds, SUDOKU_CELL_BACKGROUND_COLOR);
                     } else if (color_bits.count == 1) {
-                        DrawRectangleRec(cell_bounds, SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[0]]); // a very obvious special case.
+                        // a very obvious special case. only one color
+                        DrawRectangleRec(cell_bounds, SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[0]]);
                     } else {
 
-
+                        //
+                        // We're going to split the cell into sections, and paint them with
+                        // the colors the user selected in the bit mask,
+                        //
+                        // first generate points arond a circle, place them in the middle of the cell,
+                        // then extend them until there past the edge of the rectangle,
+                        // create a line between the middle and that point,
+                        //
+                        // find the point and line on the rectangle that intersects it,
+                        // fint the intersection with the next point, in the list,
+                        // turns that section into a bunch of triangles and render it.
+                        //
                         Vector2 points[MAX_BITS_SET];
                         u32 points_count = color_bits.count;
 
@@ -857,11 +869,10 @@ int main(void) {
                         if (debug_draw_color_points) EndTextureMode();
 
 
-                        // i dont want to write a shader, so im gonna try math.
-
                         Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
 
                         Line *rectangle_lines = RectangleToLines((Rectangle){0, 0, SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE});
+                        u32 rectangle_line_index = 0;
                         for (u32 point_index = 0; point_index < points_count; point_index++) {
                             Vector2 fan_points[8] = {middle};
                             u32 fan_points_count = 1;
@@ -871,28 +882,32 @@ int main(void) {
 
                             bool seen_start = false;
                             bool seen_end   = false;
+
+
                             // 4 + 1 means we have to check the top edge of the rec again, could probablty
                             // restructure this loop so we dont have to check everty edge every time but what ever.
-                            for (u32 rec_line_index = 0; rec_line_index < 4 + 1; rec_line_index++) {
-                            again:;
-
-                                Line rec_line = rectangle_lines[rec_line_index % 4];
+                            while (rectangle_line_index < 4 + 1) {
+                                Line rec_line = rectangle_lines[rectangle_line_index % 4];
 
                                 Vector2 hit_loc;
                                 bool hit = CheckCollisionLinesL(line_checking, rec_line, &hit_loc);
-                                if (hit) {
-                                    if (!seen_start) {
-                                        seen_start = true;
-                                        fan_points[fan_points_count++] = hit_loc;
-                                        line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
-                                        goto again;
-                                    } else {
-                                        seen_end = true;
-                                        fan_points[fan_points_count++] = hit_loc;
-                                        break;
-                                    }
+                                if (!hit) {
+                                    if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
+                                    rectangle_line_index += 1;
+                                    continue;
                                 }
-                                if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
+
+                                if (!seen_start) {
+                                    seen_start = true;
+                                    fan_points[fan_points_count++] = hit_loc;
+                                    line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
+                                    continue;
+                                } else {
+                                    seen_end = true;
+                                    fan_points[fan_points_count++] = hit_loc;
+                                    break;
+                                }
+
                             }
 
                             ASSERT(seen_start && seen_end);
