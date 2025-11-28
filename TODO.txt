@@ -3,13 +3,15 @@
 
 
 USEABILITY:
-    - animate the selection process.
     - some way to load different sudoku's (maybe store them in a folder and have a file brower)
 
     - pick better colors for everything
     - add other formes of marking. like renban line (aka just lines.)
 
     - add a pallet of things you can do (like sudokupad, that allowes better picking of colors)
+
+
+    - there are still some animations that are not done and have a placeholder... (but its fine for now, would have to try much harder to get all the edge cases, i feel like theres some grafics programmer out there laughing at my code. I will find you.)
 
 
 SOUND:
@@ -29,3 +31,4 @@ SOLVER:
 
 
 DONE:
+    - animate the selection process.
