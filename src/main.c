@@ -332,8 +332,9 @@ internal void put_digit_on_layer(
 
 
 
+
 ///////////////////////////////////////////////////////////////////////////
-//                              Context
+//                         Selected Animation Structs
 ///////////////////////////////////////////////////////////////////////////
 
 typedef struct {
@@ -379,14 +380,10 @@ typedef struct {
 
 
 
-struct {
 
-    Selected_Animation_Array selection_animation_array;
-
-} context = ZEROED;
-
-
-
+///////////////////////////////////////////////////////////////////////////
+//                              Input Struct
+///////////////////////////////////////////////////////////////////////////
 
 typedef struct {
     struct {
@@ -428,10 +425,25 @@ typedef struct {
 } Input;
 
 
-global_variable Input global_input = ZEROED;
+
+///////////////////////////////////////////////////////////////////////////
+//                              Context
+///////////////////////////////////////////////////////////////////////////
+
+struct {
+    Selected_Animation_Array selection_animation_array;
+
+    Input input;
+
+} context = ZEROED;
+
+
+
+
+
 
 internal inline Input *get_input(void) {
-    return &global_input;
+    return &context.input;
 }
 
 internal void update_input(void) {
