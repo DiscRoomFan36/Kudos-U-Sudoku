@@ -4,9 +4,6 @@
 #include "Bested.h"
 #undef Clamp // TODO we gotta do something about this...
 
-// TODO @Bested.h change to append
-#define Array_Append Array_Push
-
 
 
 #include <raylib.h>

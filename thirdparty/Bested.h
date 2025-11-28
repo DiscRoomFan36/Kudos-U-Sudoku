@@ -653,7 +653,7 @@ void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_inde
 #define Array_Item_Align(a)     Alignof(*(a)->items)
 
 // add a single value
-#define Array_Push(a, value)                                                                                                                    \
+#define Array_Append(a, value)                                                                                                                  \
     (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false),    \
     (a)->items[(a)->count++] = (value))
 
