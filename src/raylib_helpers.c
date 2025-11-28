@@ -19,6 +19,21 @@ typedef union Line {
 //         Rectangle Helpers
 ////////////////////////////////////////
 
+#define Rec_Fmt "{%f, %f, %f, %f}"
+#define Rec_Arg(rec) (rec).x, (rec).y, (rec).width, (rec).height
+
+
+internal void RectangleRemoveNegatives(Rectangle *rec) {
+    if (rec->width  <= 0) rec->width  = 0;
+    if (rec->height <= 0) rec->height = 0;
+}
+
+internal void ClipRectangleAIntoRectangleB(Rectangle a, Rectangle *b) {
+    *b = GetCollisionRec(a, *b);
+}
+
+
+
 internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
     Rectangle result = {
         rec.x + value, rec.y + value,
@@ -29,6 +44,20 @@ internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
 }
 
 #define GrowRectangle(rec, value)       ShrinkRectangle((rec), -(value))
+
+
+internal inline Rectangle ShrinkRectanglePercent(Rectangle rec, float percent) {
+    float new_width  = percent * rec.width;
+    float new_height = percent * rec.height;
+
+    Rectangle result = {
+        rec.x + ((rec.width  - new_width )/2),
+        rec.y + ((rec.height - new_height)/2),
+        new_width,
+        new_height,
+    };
+    return result;
+}
 
 
 internal inline Vector2 RectangleTopLeft(Rectangle rec) {

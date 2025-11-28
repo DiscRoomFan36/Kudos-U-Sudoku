@@ -1,0 +1,31 @@
+
+
+
+
+USEABILITY:
+    - animate the selection process.
+    - some way to load different sudoku's (maybe store them in a folder and have a file brower)
+
+    - pick better colors for everything
+    - add other formes of marking. like renban line (aka just lines.)
+
+    - add a pallet of things you can do (like sudokupad, that allowes better picking of colors)
+
+
+SOUND:
+    - sound for placeing digit
+    - sound for marking
+    - sound for deleation
+    - sound for undo/redo
+
+    - sound for selection?
+
+
+
+SOLVER:
+    - start the solver
+
+
+
+
+DONE:

@@ -125,9 +125,7 @@ const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
 
 
 
-
-
-
+// TODO put these in the context or something...
 
 // sqaure for now, change when adding a control pannel.
 global_variable s32     window_width  =  9*80;
@@ -144,6 +142,8 @@ global_variable bool    debug_draw_fps                  = true;
 
 // TODO @Bested.h
 #define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
+
+internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
 
 
 
@@ -175,7 +175,7 @@ typedef struct {
         u16 uncertain; // bitfield's
         u16   certain; // bitfield's
 
-        u32 color_bitfield; // color can be any pattern of bits, TODO use voronoi to generate color patterns.
+        u32 color_bitfield;
         // TODO maybe also lines, but they whouldnt be in this struct.
     } markings[SUDOKU_SIZE][SUDOKU_SIZE];
 
@@ -188,15 +188,18 @@ typedef struct {
 
 
 
+typedef struct {
+    struct Sudoku_UI {
+        bool is_selected;
+        bool is_hovering_over;
+    } grid[SUDOKU_SIZE][SUDOKU_SIZE];
+
+} Sudoku_UI_Grid;
 
 // SOA style, probably a bit overkill.
 typedef struct {
     Sudoku_Grid grid;
-
-    struct Sudoku_UI {
-        bool is_selected;
-        bool is_hovering_over;
-    } ui[SUDOKU_SIZE][SUDOKU_SIZE];
+    Sudoku_UI_Grid ui;
 
 
     String name;
@@ -232,7 +235,7 @@ typedef struct {
 
 
 
-internal inline Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, u8 i, u8 j) {
+internal inline Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, s8 i, s8 j) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
     Sudoku_Grid_Cell result = {
         .digit      = &grid->digits  [j][i],
@@ -243,20 +246,22 @@ internal inline Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, u8 i, u8 j) {
 
 
 
-internal inline Sudoku_Cell get_cell(Sudoku *sudoku, u8 i, u8 j) {
+internal inline Sudoku_Cell get_cell(Sudoku *sudoku, s8 i, s8 j) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
     ASSERT(sudoku);
 
     Sudoku_Cell result = {
         .digit          = &sudoku->grid.digits  [j][i],
         .marking        = &sudoku->grid.markings[j][i],
-        .ui             = &sudoku->ui           [j][i],
+        .ui             = &sudoku->ui.grid      [j][i],
     };
     return result;
 }
+#define cell_is_selected(sudoku, i, j) (get_cell((sudoku), (i), (j)).ui->is_selected)
 
 
-internal inline Rectangle get_cell_bounds(Sudoku *sudoku, u8 i, u8 j) {
+
+internal inline Rectangle get_cell_bounds(Sudoku *sudoku, s8 i, s8 j) {
     // while this dosnt nessesarily cause problems, i want this to be
     // used wherever get_cell is, and them having the same properties is nice
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
@@ -327,8 +332,66 @@ internal void put_digit_on_layer(
 
 
 
+///////////////////////////////////////////////////////////////////////////
+//                              Context
+///////////////////////////////////////////////////////////////////////////
 
-internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
+typedef struct {
+    s8 i, j;
+} Sudoku_Grid_Position;
+
+
+typedef enum {
+    SAAK_GROW_FROM_NOTHING,
+    SAAK_GROW_FROM_DIRECTION,
+
+    SAAK_SHRINK_TO_NOTHING,
+    SAAK_SHRINK_TO_DIRECTION,
+
+    SAAK_MASS_FADE_AWAY,
+    SAAK_MASS_FADE_AWAY_AND_ONE_APPEARS,
+} Selected_Animation_Animation_Kind;
+
+typedef struct {
+    Selected_Animation_Animation_Kind kind;
+
+    struct {
+        s8 x, y;
+    } direcion;
+
+    // TODO gonna need to store alot more when doing MASS_FADE_AWAY
+    Sudoku_Grid_Position pos;
+    bool state_changed_to_selected;
+
+    // how far along in the animation it is.
+    // [0..1]
+    f64 t;
+
+    Sudoku_UI_Grid prev_ui_state;
+    Sudoku_UI_Grid curr_ui_state;
+
+} Selected_Animation;
+
+typedef struct {
+    _Array_Header_;
+    Selected_Animation *items;
+} Selected_Animation_Array;
+
+
+
+struct {
+
+    Selected_Animation_Array selection_animation_array;
+
+} context = ZEROED;
+
+
+
+
+
+// forward function decleration
+void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation);
+
 
 
 
@@ -342,6 +405,11 @@ const char *autosave_path = "./build/autosave.sudoku";
 
 int main(void) {
     Arena *scratch = Pool_Get(&pool);
+
+    context.selection_animation_array.allocator = Pool_Get(&pool);
+
+
+
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(window_width, window_height, "Sudoku");
@@ -430,6 +498,11 @@ int main(void) {
         ////////////////////////////////
         struct {
             struct {
+                f64 now; // in seconds
+                f64 dt;  // in seconds
+            } time;
+
+            struct {
                 Vector2 pos;
                 struct {
                     bool clicked;
@@ -461,6 +534,9 @@ int main(void) {
             } keyboard;
 
         } input = ZEROED;
+
+        input.time.now = GetTime();
+        input.time.dt  = GetFrameTime();
 
         input.mouse.pos                           = GetMousePosition();
         input.mouse.left.clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
@@ -601,6 +677,8 @@ int main(void) {
             ////////////////////////////////////////////////
             //              Selection stuff
             ////////////////////////////////////////////////
+            Sudoku_UI_Grid previous_ui = sudoku.ui;
+
 
             // phase 1
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
@@ -661,6 +739,56 @@ int main(void) {
                 }
             }
             if (debug_draw_smaller_cell_hitbox) EndTextureMode();
+
+
+            // all the selection stuff has now happened. now do some animation stuff.
+            {
+                u32 changed_count = 0;
+                // u32 got_selected_count   = 0; // these will be used for MASS later...
+                // u32 got_unselected_count = 0; // these will be used for MASS later...
+
+                Selected_Animation new_animation = ZEROED;
+                new_animation.t = 0;
+                new_animation.prev_ui_state = previous_ui;
+                new_animation.curr_ui_state = sudoku.ui;
+
+                for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                    for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                        bool is_selected = cell_is_selected(&sudoku, i, j);
+
+                        if (is_selected == previous_ui.grid[j][i].is_selected) continue;
+                        changed_count += 1;
+
+                        // if (is_selected) got_selected_count   += 1;
+                        // else             got_unselected_count += 1;
+
+                        new_animation.pos.i = i;
+                        new_animation.pos.j = j;
+                    }
+                }
+
+                // i dont know of any way this could happen... maybe when undo effects selection.
+                // ASSERT(got_selected_count <= 1);
+
+                if      (changed_count == 0) { /* do nothing. */ }
+                else if (changed_count == 1) {
+                    Sudoku_Grid_Position pos = new_animation.pos;
+                    new_animation.state_changed_to_selected = cell_is_selected(&sudoku, pos.i, pos.j);
+
+                    if (new_animation.state_changed_to_selected) {
+                        new_animation.kind = SAAK_GROW_FROM_NOTHING;
+                        // TODO direction
+                    } else {
+                        new_animation.kind = SAAK_SHRINK_TO_NOTHING;
+                        // TODO direction
+                    }
+
+                    Array_Append(&context.selection_animation_array, new_animation);
+
+                } else {
+                    // TODO: MASS_FADE_AWAY
+                }
+            }
         }
 
 
@@ -927,7 +1055,7 @@ int main(void) {
 
 
 
-                {
+                { // draw cell surrounding frame
                     Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
                     DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, SUDOKU_CELL_LINE_COLOR);
                 }
@@ -993,61 +1121,39 @@ int main(void) {
                 }
 
 
-                // hovering and stuff
-                if (cell.ui->is_selected) {
-                    // drawing flowing selected
-                    bool is_selected_up         =                         j == 0                ? false : get_cell(&sudoku, i  , j-1).ui->is_selected;
-                    bool is_selected_down       =                         j == SUDOKU_SIZE - 1  ? false : get_cell(&sudoku, i  , j+1).ui->is_selected;
-                    bool is_selected_left       = i == 0                                        ? false : get_cell(&sudoku, i-1, j  ).ui->is_selected;
-                    bool is_selected_right      = i == SUDOKU_SIZE - 1                          ? false : get_cell(&sudoku, i+1, j  ).ui->is_selected;
-
-                    bool is_selected_up_left    = i == 0               || j == 0                ? false : get_cell(&sudoku, i-1, j-1).ui->is_selected;
-                    bool is_selected_up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : get_cell(&sudoku, i+1, j-1).ui->is_selected;
-                    bool is_selected_down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : get_cell(&sudoku, i-1, j+1).ui->is_selected;
-                    bool is_selected_down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : get_cell(&sudoku, i+1, j+1).ui->is_selected;
-
-
-                    bool draw_line_up           = !is_selected_up;
-                    bool draw_line_down         = !is_selected_down;
-                    bool draw_line_left         = !is_selected_left;
-                    bool draw_line_right        = !is_selected_right;
-
-                    bool draw_line_up_left      = draw_line_up   || draw_line_left  || (!is_selected_up_left    && is_selected_up   && is_selected_left );
-                    bool draw_line_up_right     = draw_line_up   || draw_line_right || (!is_selected_up_right   && is_selected_up   && is_selected_right);
-                    bool draw_line_down_left    = draw_line_down || draw_line_left  || (!is_selected_down_left  && is_selected_down && is_selected_left );
-                    bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected_down_right && is_selected_down && is_selected_right);
-
-
-                    Rectangle cell_bounds       = get_cell_bounds(&sudoku, i, j);
-                    Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
-
-                    // orthoganal
-                    Rectangle line_up           = { select_bounds.x + SELECT_LINE_THICKNESS,                        select_bounds.y,                                                select_bounds.width - SELECT_LINE_THICKNESS*2,  SELECT_LINE_THICKNESS,                        };
-                    Rectangle line_down         = { select_bounds.x + SELECT_LINE_THICKNESS,                        select_bounds.y + select_bounds.height - SELECT_LINE_THICKNESS, select_bounds.width - SELECT_LINE_THICKNESS*2,  SELECT_LINE_THICKNESS,                        };
-                    Rectangle line_left         = { select_bounds.x,                                                select_bounds.y + SELECT_LINE_THICKNESS,                        SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
-                    Rectangle line_right        = { select_bounds.x + select_bounds.width - SELECT_LINE_THICKNESS,  select_bounds.y + SELECT_LINE_THICKNESS,                        SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
-                    // diagonal
-                    Rectangle line_up_left      = { select_bounds.x,                                                select_bounds.y,                                                SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-                    Rectangle line_up_right     = { select_bounds.x + select_bounds.width - SELECT_LINE_THICKNESS,  select_bounds.y,                                                SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-                    Rectangle line_down_left    = { select_bounds.x,                                                select_bounds.y + select_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-                    Rectangle line_down_right   = { select_bounds.x + select_bounds.width - SELECT_LINE_THICKNESS,  select_bounds.y + select_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-
-
-                    if (draw_line_up        )   DrawRectangleRec(line_up,         SELECT_HIGHLIGHT_COLOR); //YELLOW);
-                    if (draw_line_down      )   DrawRectangleRec(line_down,       SELECT_HIGHLIGHT_COLOR); //RED);
-                    if (draw_line_left      )   DrawRectangleRec(line_left,       SELECT_HIGHLIGHT_COLOR); //PURPLE);
-                    if (draw_line_right     )   DrawRectangleRec(line_right,      SELECT_HIGHLIGHT_COLOR); //GREEN);
-
-                    if (draw_line_up_left   )   DrawRectangleRec(line_up_left,    SELECT_HIGHLIGHT_COLOR); //MAROON);
-                    if (draw_line_up_right  )   DrawRectangleRec(line_up_right,   SELECT_HIGHLIGHT_COLOR); //ORANGE);
-                    if (draw_line_down_left )   DrawRectangleRec(line_down_left,  SELECT_HIGHLIGHT_COLOR); //GOLD);
-                    if (draw_line_down_right)   DrawRectangleRec(line_down_right, SELECT_HIGHLIGHT_COLOR); //PINK);
-
-
-                } else if (cell.ui->is_hovering_over) {
+                // hovering
+                if (!cell.ui->is_selected && cell.ui->is_hovering_over) {
                     DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), ColorAlpha(BLACK, 0.2)); // cool trick // @Color
                 }
             }
+        }
+
+
+        { // do selected animation
+            // how long it takes to go though one animation (seconds)
+            const f64 animation_speed = 0.2;
+            // speed up the animation the more elements tere, are. to try and catch up
+            f64 dt = input.time.dt / animation_speed * (f64)context.selection_animation_array.count;
+
+            while (context.selection_animation_array.count > 0) {
+                Selected_Animation *animation = &context.selection_animation_array.items[0];
+                animation->t += dt;
+
+                if (animation->t >= 1) {
+                    dt = animation->t - 1;
+                    Array_Remove(&context.selection_animation_array, 0, 1);
+                } else {
+                    break;
+                }
+            }
+
+
+            Selected_Animation *animation = NULL;
+            if (context.selection_animation_array.count > 0) {
+                animation = &context.selection_animation_array.items[0];
+            }
+
+            draw_sudoku_selection(&sudoku, animation);
         }
 
 
@@ -1115,6 +1221,173 @@ int main(void) {
 
     return result ? 0 : 1;
 }
+
+
+
+
+
+// this struct is 8 bytes, probably dosnt matter for my perposes to pack these.
+//
+// starts at up and moves clockwise.
+typedef union {
+    struct {
+        bool up;
+        bool up_right;
+
+        bool right;
+
+        bool down_right;
+        bool down;
+        bool down_left;
+
+        bool left;
+        bool up_left;
+    };
+
+    bool as_array[8];
+} Surrounding_Bools;
+
+
+internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bounds, f32 thickness, Surrounding_Bools is_selected, Color color) {
+    bool draw_line_up           = !is_selected.up;
+    bool draw_line_down         = !is_selected.down;
+    bool draw_line_left         = !is_selected.left;
+    bool draw_line_right        = !is_selected.right;
+
+    bool draw_line_up_left      = draw_line_up   || draw_line_left  || (!is_selected.up_left    && is_selected.up   && is_selected.left );
+    bool draw_line_up_right     = draw_line_up   || draw_line_right || (!is_selected.up_right   && is_selected.up   && is_selected.right);
+    bool draw_line_down_left    = draw_line_down || draw_line_left  || (!is_selected.down_left  && is_selected.down && is_selected.left );
+    bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected.down_right && is_selected.down && is_selected.right);
+
+
+    // orthoganal
+    Rectangle line_up           = { bounds.x + thickness,                   bounds.y,                               bounds.width - thickness*2, thickness,                   };
+    Rectangle line_down         = { bounds.x + thickness,                   bounds.y + bounds.height - thickness,   bounds.width - thickness*2, thickness,                   };
+    Rectangle line_left         = { bounds.x,                               bounds.y + thickness,                   thickness,                  bounds.height - thickness*2, };
+    Rectangle line_right        = { bounds.x + bounds.width - thickness,    bounds.y + thickness,                   thickness,                  bounds.height - thickness*2, };
+    // diagonal
+    Rectangle line_up_left      = { bounds.x,                               bounds.y,                               thickness,                  thickness,                   };
+    Rectangle line_up_right     = { bounds.x + bounds.width - thickness,    bounds.y,                               thickness,                  thickness,                   };
+    Rectangle line_down_left    = { bounds.x,                               bounds.y + bounds.height - thickness,   thickness,                  thickness,                   };
+    Rectangle line_down_right   = { bounds.x + bounds.width - thickness,    bounds.y + bounds.height - thickness,   thickness,                  thickness,                   };
+
+    RectangleRemoveNegatives(&line_up);
+    RectangleRemoveNegatives(&line_down);
+    RectangleRemoveNegatives(&line_left);
+    RectangleRemoveNegatives(&line_right);
+
+    RectangleRemoveNegatives(&line_up_left);
+    RectangleRemoveNegatives(&line_up_right);
+    RectangleRemoveNegatives(&line_down_left);
+    RectangleRemoveNegatives(&line_down_right);
+
+
+    ClipRectangleAIntoRectangleB(bounds, &line_up);
+    ClipRectangleAIntoRectangleB(bounds, &line_down);
+    ClipRectangleAIntoRectangleB(bounds, &line_left);
+    ClipRectangleAIntoRectangleB(bounds, &line_right);
+
+    ClipRectangleAIntoRectangleB(bounds, &line_up_left);
+    ClipRectangleAIntoRectangleB(bounds, &line_up_right);
+    ClipRectangleAIntoRectangleB(bounds, &line_down_left);
+    ClipRectangleAIntoRectangleB(bounds, &line_down_right);
+
+
+
+    if (draw_line_up        )   DrawRectangleRec(line_up,         color); //YELLOW);
+    if (draw_line_down      )   DrawRectangleRec(line_down,       color); //RED);
+    if (draw_line_left      )   DrawRectangleRec(line_left,       color); //PURPLE);
+    if (draw_line_right     )   DrawRectangleRec(line_right,      color); //GREEN);
+
+    if (draw_line_up_left   )   DrawRectangleRec(line_up_left,    color); //MAROON);
+    if (draw_line_up_right  )   DrawRectangleRec(line_up_right,   color); //ORANGE);
+    if (draw_line_down_left )   DrawRectangleRec(line_down_left,  color); //GOLD);
+    if (draw_line_down_right)   DrawRectangleRec(line_down_right, color); //PINK);
+}
+
+
+// uses context.selected_animation_array to draw animations.
+void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
+    ASSERT(sudoku);
+
+    Sudoku_UI_Grid *ui = &sudoku->ui;
+    if (animation) {
+        ui = &animation->curr_ui_state;
+    }
+
+
+
+    #define Is_Selected(i, j)   (ui->grid[(j)][(i)].is_selected)
+
+
+
+    // not selected loop, for animation
+    if (animation) {
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                if (Is_Selected(i, j)) continue;
+
+
+
+            }
+        }
+    }
+
+    // selected loop
+    for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+        for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+            if (!Is_Selected(i, j)) continue;
+
+            Surrounding_Bools is_selected = ZEROED;
+
+            is_selected.up         =                         j == 0                ? false : Is_Selected(i  , j-1);
+            is_selected.down       =                         j == SUDOKU_SIZE - 1  ? false : Is_Selected(i  , j+1);
+            is_selected.left       = i == 0                                        ? false : Is_Selected(i-1, j  );
+            is_selected.right      = i == SUDOKU_SIZE - 1                          ? false : Is_Selected(i+1, j  );
+
+            is_selected.up_left    = i == 0               || j == 0                ? false : Is_Selected(i-1, j-1);
+            is_selected.up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : Is_Selected(i+1, j-1);
+            is_selected.down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : Is_Selected(i-1, j+1);
+            is_selected.down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : Is_Selected(i+1, j+1);
+
+
+            Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
+            Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+
+            Color color = SELECT_HIGHLIGHT_COLOR;
+
+            if (animation) {
+                switch (animation->kind) {
+                case SAAK_GROW_FROM_NOTHING: {
+                    if (animation->pos.i == (s8)i && animation->pos.j == (s8)j) {
+                        f64 t = animation->t;
+                        f64 factor = sqrt(t);
+
+                        select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                        color = Fade(color, factor);
+                    }
+                } break;
+
+                case SAAK_SHRINK_TO_NOTHING:   {
+                    printf("SAAK_SHRINK_TO_NOTHING\n");
+                } break;
+
+                case SAAK_GROW_FROM_DIRECTION: { TODO("SAAK_GROW_FROM_DIRECTION"); } break;
+                case SAAK_SHRINK_TO_DIRECTION: { TODO("SAAK_SHRINK_TO_DIRECTION"); } break;
+                case SAAK_MASS_FADE_AWAY:      { TODO("SAAK_MASS_FADE_AWAY");      } break;
+                case SAAK_MASS_FADE_AWAY_AND_ONE_APPEARS: { TODO("SAAK_MASS_FADE_AWAY_AND_ONE_APPEARS"); } break;
+                }
+            }
+
+            draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, is_selected, color);
+        }
+    }
+
+
+
+}
+
+
 
 
 
