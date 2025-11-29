@@ -1251,6 +1251,14 @@ typedef union {
     bool as_array[8];
 } Surrounding_Bools;
 
+static_assert(sizeof(Surrounding_Bools) == Member_Size(Surrounding_Bools, as_array), "union must be correctly sized.");
+
+
+internal Surrounding_Bools surrounding_bools_all_as(bool this) {
+    Surrounding_Bools result;
+    for (u32 i = 0; i < Array_Len(result.as_array); i++)    result.as_array[i] = this;
+    return result;
+}
 
 internal inline bool Is_Selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
     ASSERT(ui);
@@ -1275,19 +1283,22 @@ internal Surrounding_Bools get_surrounding_is_selected(Sudoku_UI_Grid *ui, u8 i,
     return result;
 }
 
+internal Surrounding_Bools surrounding_is_selected_to_draw_lines(Surrounding_Bools is_selected) {
+    Surrounding_Bools result = {
+        .up           = !is_selected.up,
+        .down         = !is_selected.down,
+        .left         = !is_selected.left,
+        .right        = !is_selected.right,
 
-internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bounds, f32 thickness, Surrounding_Bools is_selected, Color color) {
-    bool draw_line_up           = !is_selected.up;
-    bool draw_line_down         = !is_selected.down;
-    bool draw_line_left         = !is_selected.left;
-    bool draw_line_right        = !is_selected.right;
+        .up_left      = !is_selected.up   || !is_selected.left  || (!is_selected.up_left    && is_selected.up   && is_selected.left ),
+        .up_right     = !is_selected.up   || !is_selected.right || (!is_selected.up_right   && is_selected.up   && is_selected.right),
+        .down_left    = !is_selected.down || !is_selected.left  || (!is_selected.down_left  && is_selected.down && is_selected.left ),
+        .down_right   = !is_selected.down || !is_selected.right || (!is_selected.down_right && is_selected.down && is_selected.right),
+    };
+    return result;
+}
 
-    bool draw_line_up_left      = draw_line_up   || draw_line_left  || (!is_selected.up_left    && is_selected.up   && is_selected.left );
-    bool draw_line_up_right     = draw_line_up   || draw_line_right || (!is_selected.up_right   && is_selected.up   && is_selected.right);
-    bool draw_line_down_left    = draw_line_down || draw_line_left  || (!is_selected.down_left  && is_selected.down && is_selected.left );
-    bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected.down_right && is_selected.down && is_selected.right);
-
-
+internal void draw_selected_lines(Rectangle bounds, f32 thickness, Surrounding_Bools draw_lines, Color color) {
     // orthoganal
     Rectangle line_up           = { bounds.x + thickness,                   bounds.y,                               bounds.width - thickness*2, thickness,                   };
     Rectangle line_down         = { bounds.x + thickness,                   bounds.y + bounds.height - thickness,   bounds.width - thickness*2, thickness,                   };
@@ -1322,15 +1333,20 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
     ClipRectangleAIntoRectangleB(bounds, &line_down_right);
 
 
-    if (draw_line_up        )   DrawRectangleRec(line_up,         color); //YELLOW);
-    if (draw_line_down      )   DrawRectangleRec(line_down,       color); //RED);
-    if (draw_line_left      )   DrawRectangleRec(line_left,       color); //PURPLE);
-    if (draw_line_right     )   DrawRectangleRec(line_right,      color); //GREEN);
+    if (draw_lines.up        )   DrawRectangleRec(line_up,         color); //YELLOW);
+    if (draw_lines.down      )   DrawRectangleRec(line_down,       color); //RED);
+    if (draw_lines.left      )   DrawRectangleRec(line_left,       color); //PURPLE);
+    if (draw_lines.right     )   DrawRectangleRec(line_right,      color); //GREEN);
 
-    if (draw_line_up_left   )   DrawRectangleRec(line_up_left,    color); //MAROON);
-    if (draw_line_up_right  )   DrawRectangleRec(line_up_right,   color); //ORANGE);
-    if (draw_line_down_left )   DrawRectangleRec(line_down_left,  color); //GOLD);
-    if (draw_line_down_right)   DrawRectangleRec(line_down_right, color); //PINK);
+    if (draw_lines.up_left   )   DrawRectangleRec(line_up_left,    color); //MAROON);
+    if (draw_lines.up_right  )   DrawRectangleRec(line_up_right,   color); //ORANGE);
+    if (draw_lines.down_left )   DrawRectangleRec(line_down_left,  color); //GOLD);
+    if (draw_lines.down_right)   DrawRectangleRec(line_down_right, color); //PINK);
+}
+
+internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bounds, f32 thickness, Surrounding_Bools is_selected, Color color) {
+    Surrounding_Bools draw_lines = surrounding_is_selected_to_draw_lines(is_selected);
+    draw_selected_lines(bounds, thickness, draw_lines, color);
 }
 
 
@@ -1338,37 +1354,44 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
 void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     ASSERT(sudoku);
 
-    Sudoku_UI_Grid *curr_ui = &sudoku->ui;
-    if (animation) {
-        curr_ui = &animation->curr_ui_state;
-    }
-
-    Surrounding_Bools curr_surrounding_is_selected_grid[SUDOKU_SIZE][SUDOKU_SIZE] = ZEROED;
-    Surrounding_Bools prev_surrounding_is_selected_grid[SUDOKU_SIZE][SUDOKU_SIZE] = ZEROED;
-    {
+    if (!animation) {
+        Sudoku_UI_Grid *ui = &sudoku->ui;
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                curr_surrounding_is_selected_grid[j][i] = get_surrounding_is_selected(curr_ui, i, j);
+                if (!Is_Selected(ui, i, j)) continue;
+
+                Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(ui, i, j);
+                Surrounding_Bools draw_lines = surrounding_is_selected_to_draw_lines(surrounding_is_selected);
+
+                Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
+                Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+
+                Color color = SELECT_HIGHLIGHT_COLOR;
+
+                draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines, color);
             }
         }
 
-        if (animation) {
-            Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    prev_surrounding_is_selected_grid[j][i] = get_surrounding_is_selected(prev_ui, i, j);
-                }
-            }
-        } else {
-            Mem_Copy(prev_surrounding_is_selected_grid, curr_surrounding_is_selected_grid, sizeof(curr_surrounding_is_selected_grid));
+        return;
+    }
+
+    ASSERT(animation);
+
+    Sudoku_UI_Grid *curr_ui = &animation->curr_ui_state;
+    Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
+
+    Surrounding_Bools curr_surrounding_is_selected_grid[SUDOKU_SIZE][SUDOKU_SIZE];
+    Surrounding_Bools prev_surrounding_is_selected_grid[SUDOKU_SIZE][SUDOKU_SIZE];
+    for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+        for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+            curr_surrounding_is_selected_grid[j][i] = get_surrounding_is_selected(curr_ui, i, j);
+            prev_surrounding_is_selected_grid[j][i] = get_surrounding_is_selected(prev_ui, i, j);
         }
     }
 
 
     // not selected loop, for animation
-    if (animation) {
-        Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
-
+    {
         f64 t = animation->t_animation;
         f64 factor = sqrt(t);
 
@@ -1377,8 +1400,8 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
                 // if it is not selected this ui, and was selected in the previous ui,
                 // fade it out.
-                if (Is_Selected(curr_ui, i, j)) continue;
-                if (!Is_Selected(prev_ui, i, j)) continue;
+                if (Is_Selected(curr_ui, i, j) == true)  continue;
+                if (Is_Selected(prev_ui, i, j) == false) continue;
 
                 // current_surrounding_is_selected
                 Surrounding_Bools csis = curr_surrounding_is_selected_grid[j][i];
@@ -1459,47 +1482,75 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
             Color color = SELECT_HIGHLIGHT_COLOR;
 
-            if (animation) {
-                Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
-                // TODO maybe precompute these?
+            // if it was not selected on the previous ui, do some animation
+            if (!Is_Selected(prev_ui, i, j)) {
                 // previous_surrounding_is_selected
                 Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
 
                 f64 t = animation->t_animation;
                 f64 factor = sqrt(t);
 
-                // if it was not selected on the previous ui, do some animation
-                if (!Is_Selected(prev_ui, i, j)) {
 
-                    if        ( psis.up && !psis.right && !psis.down && !psis.left) {
-                        // grow down.
-                        select_bounds.height *= factor;
+                enum All_Selected_Cases {
+                    NONE        = 0,                                    //  0
+                    UP          = (1<<0),                               //  1
+                    RIGHT       = (1<<1),                               //  2
+                    DOWN        = (1<<2),                               //  4
+                    LEFT        = (1<<3),                               //  8
 
-                    } else if (!psis.up &&  psis.right && !psis.down && !psis.left) {
-                        // grow left.
-                        select_bounds.x += select_bounds.width * (1-factor);
-                        select_bounds.width *= factor;
+                    UP_AND_RIGHT            = UP   | RIGHT,             //  3
+                    UP_AND_DOWN             = UP   | DOWN,              //  5
+                    UP_AND_LEFT             = UP   | LEFT,              //  9
 
-                    } else if (!psis.up && !psis.right &&  psis.down && !psis.left) {
-                        // grow up
-                        select_bounds.y += select_bounds.height * (1-factor);
-                        select_bounds.height *= factor;
+                    DOWN_AND_RIGHT          = DOWN | RIGHT,             //  6
+                    DOWN_AND_LEFT           = DOWN | LEFT,              // 12
 
-                    } else if (!psis.up && !psis.right && !psis.down &&  psis.left) {
-                        // grow to the right.
-                        select_bounds.width  *= factor;
+                    LEFT_AND_RIGHT          = LEFT | RIGHT,             // 10
 
-                        // if the left cell was previously selected,
-                        // maybe deselect the left edge here...
-                        // so it can look like the box is closeing...
+                    UP_AND_DOWN_AND_RIGHT   = UP   | DOWN | RIGHT,      //  7
+                    UP_AND_DOWN_AND_LEFT    = UP   | DOWN | LEFT,       // 13
+                    UP_AND_LEFT_AND_RIGHT   = UP   | LEFT | RIGHT,      // 11
+                    DOWN_AND_LEFT_AND_RIGHT = DOWN | LEFT | RIGHT,      // 14
 
+                    ALL_ORTHOGANAL          = UP | DOWN | RIGHT | LEFT, // 15
+                };
 
-                    } else {
+                bool prev_selected_only_up          =  psis.up && !psis.right && !psis.down && !psis.left;
+                bool prev_selected_only_right       = !psis.up &&  psis.right && !psis.down && !psis.left;
+                bool prev_selected_only_down        = !psis.up && !psis.right &&  psis.down && !psis.left;
+                bool prev_selected_only_left        = !psis.up && !psis.right && !psis.down &&  psis.left;
 
-                        // grow from nothing.
-                        select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                        color = Fade(color, factor);
-                    }
+                bool prev_selected_all_othoganal    =  psis.up &&  psis.right &&  psis.down &&  psis.left;
+
+                if (prev_selected_all_othoganal) {
+                    // draw a shinking Rect that makes it look like the outside is sinking in.
+                    Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
+                    Rectangle shrinking_rectangle = ShrinkRectanglePercent(select_bounds, 1-factor);
+                    draw_selected_lines(shrinking_rectangle, SELECT_LINE_THICKNESS, draw_lines, color);
+
+                } else if (prev_selected_only_up) {
+                    // grow down.
+                    select_bounds.height *= factor;
+
+                } else if (prev_selected_only_right) {
+                    // grow left.
+                    select_bounds.x += select_bounds.width * (1-factor);
+                    select_bounds.width *= factor;
+
+                } else if (prev_selected_only_down) {
+                    // grow up
+                    select_bounds.y += select_bounds.height * (1-factor);
+                    select_bounds.height *= factor;
+
+                } else if (prev_selected_only_left) {
+                    // grow to the right.
+                    select_bounds.width  *= factor;
+
+                } else {
+
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
                 }
             }
 
