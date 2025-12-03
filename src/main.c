@@ -330,29 +330,9 @@ internal void put_digit_on_layer(
 
 #include "sudoku_save_and_load.c"
 
+// for 'draw_sudoku_selection()'
+#include "sudoku_draw_selection.c"
 
-
-
-
-
-///////////////////////////////////////////////////////////////////////////
-//                         Selected Animation Structs
-///////////////////////////////////////////////////////////////////////////
-
-typedef struct {
-    // how far along in the animation it is.
-    // [0..1]
-    f64 t_animation;
-
-    Sudoku_UI_Grid prev_ui_state;
-    Sudoku_UI_Grid curr_ui_state;
-
-} Selected_Animation;
-
-typedef struct {
-    _Array_Header_;
-    Selected_Animation *items;
-} Selected_Animation_Array;
 
 
 
@@ -451,21 +431,6 @@ internal void update_input(void) {
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-// forward function decleration
-void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation);
 
 
 
@@ -1229,12 +1194,6 @@ int main(void) {
 
     return result ? 0 : 1;
 }
-
-
-
-
-
-#include "sudoku_draw_selection.c"
 
 
 

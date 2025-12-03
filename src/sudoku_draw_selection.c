@@ -1,8 +1,39 @@
+#pragma once
+
+
+///////////////////////////////////////////////////////////////////////////
+//                         Selected Animation Header
+///////////////////////////////////////////////////////////////////////////
+
+
+typedef struct {
+    // how far along in the animation it is.
+    // [0..1]
+    f64 t_animation;
+
+    Sudoku_UI_Grid prev_ui_state;
+    Sudoku_UI_Grid curr_ui_state;
+
+} Selected_Animation;
+
+typedef struct {
+    _Array_Header_;
+    Selected_Animation *items;
+} Selected_Animation_Array;
+
+
+// the main function for this file.
+void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation);
 
 
 
 
 
+
+
+//////////////////////////////////////////
+//             Directions
+//////////////////////////////////////////
 
 typedef enum {
     DIR_UP    = 0,
@@ -26,6 +57,10 @@ internal Direction Next_Direction_Counter_Clockwise(Direction dir) { return (dir
 
 
 
+//////////////////////////////////////////
+//          Rectangle Helpers
+//////////////////////////////////////////
+
 internal Rectangle Grow_Rectangle_In_Direction(Rectangle rec, Direction direction, f32 factor) {
     switch (direction) {
         case DIR_UP:    {
@@ -44,13 +79,6 @@ internal Rectangle Grow_Rectangle_In_Direction(Rectangle rec, Direction directio
 
     return rec;
 }
-
-
-
-
-
-
-
 
 
 internal Rectangle Rectangle_Shrink_Both_Sides(Rectangle rec, Direction dir, f32 factor) {
@@ -73,6 +101,12 @@ internal Rectangle Rectangle_Shrink_Both_Sides(Rectangle rec, Direction dir, f32
     UNREACHABLE();
 }
 
+
+
+
+//////////////////////////////////////////
+//        Surrounding Helpers
+//////////////////////////////////////////
 
 // this struct is 8 bytes, probably dosnt matter for my perposes to pack these.
 //
@@ -105,6 +139,46 @@ internal Surrounding_Bools surrounding_bools_all_as(bool this) {
 }
 
 
+
+
+
+internal Surrounding_Bools get_surrounding_is_selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
+    ASSERT(ui);
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+    Surrounding_Bools result = {
+        .up         =                         j == 0                ? false : ui->grid[j-1][i  ].is_selected,
+        .down       =                         j == SUDOKU_SIZE - 1  ? false : ui->grid[j+1][i  ].is_selected,
+        .left       = i == 0                                        ? false : ui->grid[j  ][i-1].is_selected,
+        .right      = i == SUDOKU_SIZE - 1                          ? false : ui->grid[j  ][i+1].is_selected,
+
+        .up_left    = i == 0               || j == 0                ? false : ui->grid[j-1][i-1].is_selected,
+        .up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : ui->grid[j-1][i+1].is_selected,
+        .down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : ui->grid[j+1][i-1].is_selected,
+        .down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : ui->grid[j+1][i+1].is_selected,
+    };
+    return result;
+}
+
+internal Surrounding_Bools surrounding_is_selected_to_draw_lines(Surrounding_Bools is_selected) {
+    Surrounding_Bools result = {
+        .up           = !is_selected.up,
+        .down         = !is_selected.down,
+        .left         = !is_selected.left,
+        .right        = !is_selected.right,
+
+        .up_left      = !is_selected.up   || !is_selected.left  || (!is_selected.up_left    && is_selected.up   && is_selected.left ),
+        .up_right     = !is_selected.up   || !is_selected.right || (!is_selected.up_right   && is_selected.up   && is_selected.right),
+        .down_left    = !is_selected.down || !is_selected.left  || (!is_selected.down_left  && is_selected.down && is_selected.left ),
+        .down_right   = !is_selected.down || !is_selected.right || (!is_selected.down_right && is_selected.down && is_selected.right),
+    };
+    return result;
+}
+
+
+
+//////////////////////////////////////////
+//     Surrounding + Direction
+//////////////////////////////////////////
 
 
 internal bool *get_surrounding_bool_direction(Surrounding_Bools *bools, Direction dir) {
@@ -155,37 +229,13 @@ internal s32 get_corner_between_index(Direction dir_1, Direction dir_2) {
 }
 
 
-internal Surrounding_Bools get_surrounding_is_selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
-    ASSERT(ui);
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
-    Surrounding_Bools result = {
-        .up         =                         j == 0                ? false : ui->grid[j-1][i  ].is_selected,
-        .down       =                         j == SUDOKU_SIZE - 1  ? false : ui->grid[j+1][i  ].is_selected,
-        .left       = i == 0                                        ? false : ui->grid[j  ][i-1].is_selected,
-        .right      = i == SUDOKU_SIZE - 1                          ? false : ui->grid[j  ][i+1].is_selected,
 
-        .up_left    = i == 0               || j == 0                ? false : ui->grid[j-1][i-1].is_selected,
-        .up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : ui->grid[j-1][i+1].is_selected,
-        .down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : ui->grid[j+1][i-1].is_selected,
-        .down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : ui->grid[j+1][i+1].is_selected,
-    };
-    return result;
-}
 
-internal Surrounding_Bools surrounding_is_selected_to_draw_lines(Surrounding_Bools is_selected) {
-    Surrounding_Bools result = {
-        .up           = !is_selected.up,
-        .down         = !is_selected.down,
-        .left         = !is_selected.left,
-        .right        = !is_selected.right,
 
-        .up_left      = !is_selected.up   || !is_selected.left  || (!is_selected.up_left    && is_selected.up   && is_selected.left ),
-        .up_right     = !is_selected.up   || !is_selected.right || (!is_selected.up_right   && is_selected.up   && is_selected.right),
-        .down_left    = !is_selected.down || !is_selected.left  || (!is_selected.down_left  && is_selected.down && is_selected.left ),
-        .down_right   = !is_selected.down || !is_selected.right || (!is_selected.down_right && is_selected.down && is_selected.right),
-    };
-    return result;
-}
+//////////////////////////////////////////
+//           Drawing Helpers
+//////////////////////////////////////////
+
 
 internal void draw_selected_lines(Rectangle bounds, f32 thickness, Surrounding_Bools draw_lines, Color color) {
     // orthoganal
@@ -239,7 +289,13 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
 }
 
 
-// uses context.selected_animation_array to draw animations.
+
+
+
+//////////////////////////////////////////////////////////////////
+//        The Big One  /  Main  /  Draw Sudoku Selection
+//////////////////////////////////////////////////////////////////
+
 void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     ASSERT(sudoku);
 
@@ -358,6 +414,8 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
             }
         }
     }
+
+
 
     // selected loop
     for (u32 j = 0; j < SUDOKU_SIZE; j++) {
