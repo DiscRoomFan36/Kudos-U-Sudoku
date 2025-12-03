@@ -10,8 +10,8 @@ USEABILITY:
 
     - add a pallet of things you can do (like sudokupad, that allowes better picking of colors)
 
+    - there are still (still) some animations that are not done and have a placeholder... (the fade out's, but thats beyond the scope, i feel like it would be 100x harder to get all of them without a general algorithm.)
 
-    - there are still some animations that are not done and have a placeholder... (but its fine for now, would have to try much harder to get all the edge cases, i feel like theres some grafics programmer out there laughing at my code. I will find you.)
 
 
 SOUND:
@@ -30,5 +30,7 @@ SOLVER:
 
 
 
+
 DONE:
+    - there are still some animations that are not done and have a placeholder... (but its fine for now, would have to try much harder to get all the edge cases, i feel like theres some grafics programmer out there laughing at my code. I will find you.)
     - animate the selection process.
